@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Secrets
+.env
+.env.*
+secrets.*
+config.local.py
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+jolli_memory.db
+jolli_chats.db
+jolli_knowledge.db
+
+# Private training data
+training_data/private/
+training_data/secrets/
+training_data/personal/
+
+# Ollama / models
+models/
+*.gguf
+
+# Logs
+*.log
+logs/
+nohup.out
+
+# Debian build artifacts
+*.deb
+*.build
+*.buildinfo
+*.changes
+*.dsc
+*.tar.*
+debian/.debhelper/
+debian/files
+debian/jolli/
+debian/debhelper-build-stamp
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo

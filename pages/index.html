@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+
+    <title>Jolli Web</title>
+
+    <!-- Mobile / PWA basics -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#08080c">
+    <meta name="description" content="Jolli, your personal AI assistant.">
+
+    <!-- Android / Chromium PWA -->
+    <link rel="manifest" href="./static/manifest.json">
+
+    <!-- iOS Safari PWA support -->
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Jolli">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="apple-touch-icon" href="./static/icons/jolli-192.png">
+    <link rel="apple-touch-icon" sizes="192x192" href="./static/icons/jolli-192.png">
+    <link rel="apple-touch-icon" sizes="512x512" href="./static/icons/jolli-512.png">
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="./static/style.css">
+</head>
+<body>
+    <main class="app">
+        <section class="sidebar">
+            <div class="brand">
+                <h1>Jolli</h1>
+                <p class="subtitle">Your local AI assistant</p>
+            </div>
+
+            <div class="status-box">
+                <div id="status-dot" class="dot"></div>
+                <span id="status-text">Checking Ollama...</span>
+            </div>
+
+            <button id="new-chat-btn" class="new-chat-btn" type="button">
+                + New Chat
+            </button>
+
+            <div class="history-panel">
+                <div class="history-header">
+                    <h2>Chat History</h2>
+                    <button id="refresh-history-btn" class="small-btn" type="button" title="Refresh history">
+                        ↻
+                    </button>
+                </div>
+
+                <div id="chat-history" class="chat-history">
+                    <div class="history-empty">No saved chats yet.</div>
+                </div>
+            </div>
+
+            <div class="commands">
+                <h2>Commands</h2>
+                <p><code>remember text</code></p>
+                <p><code>notes</code></p>
+                <p><code>call me message</code></p>
+            </div>
+        </section>
+
+        <section class="chat">
+            <header class="chat-header">
+                <div>
+                    <div class="chat-label">Current chat</div>
+                    <h2 id="active-chat-title">New chat</h2>
+                </div>
+
+                <div id="save-status" class="save-status">
+                    Ready
+                </div>
+            </header>
+
+            <div id="messages" class="messages">
+                <div class="message assistant">
+                    <div class="name">Jolli</div>
+                    <div class="bubble">Jolli Web online. Ask me something.</div>
+                </div>
+            </div>
+
+            <form id="chat-form" class="input-bar">
+                <input
+                    id="message-input"
+                    type="text"
+                    autocomplete="off"
+                    autocapitalize="sentences"
+                    spellcheck="true"
+                    inputmode="text"
+                    placeholder="Talk to Jolli..."
+                >
+                <button type="submit">Send</button>
+                <button type="button" id="voice-btn">Speak</button>
+            </form>
+        </section>
+    </main>
+
+    <!-- PWA service worker -->
+    <script>
+        if ("serviceWorker" in navigator) {
+            window.addEventListener("load", () => {
+                navigator.serviceWorker.register("./static/service-worker.js")
+                    .catch((error) => {
+                        console.warn("Jolli service worker registration failed:", error);
+                    });
+            });
+        }
+    </script>
+
+    <script src="./static/config.js"></script>
+    <script src="./static/app.js"></script>
+</body>
+</html>
