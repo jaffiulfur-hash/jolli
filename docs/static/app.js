@@ -1,4 +1,4 @@
-const API_BASE = window.JOLLI_API_BASE || "";
+const API_BASE = (window.JOLLI_API_BASE || "").replace(/\/$/, "");
 
 const messages = document.getElementById("messages");
 const form = document.getElementById("chat-form");
@@ -25,6 +25,26 @@ function apiUrl(path) {
     return `${API_BASE}${path}`;
 }
 
+async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+        const response = await fetch(url, {
+            ...options,
+            signal: controller.signal,
+        });
+
+        return response;
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
+function apiConfigured() {
+    return API_BASE.startsWith("https://");
+}
+
 /* ---------------------------------------------------------
  * UI helpers
  * --------------------------------------------------------- */
@@ -32,6 +52,24 @@ function apiUrl(path) {
 function setSaveStatus(text) {
     if (saveStatus) {
         saveStatus.textContent = text;
+    }
+}
+
+function setBackendStatus(text, ok) {
+    if (statusText) {
+        statusText.textContent = text;
+    }
+
+    if (!statusDot) {
+        return;
+    }
+
+    if (ok) {
+        statusDot.classList.remove("bad");
+        statusDot.classList.add("ok");
+    } else {
+        statusDot.classList.remove("ok");
+        statusDot.classList.add("bad");
     }
 }
 
@@ -141,23 +179,31 @@ function renderWelcomeMessage() {
  * --------------------------------------------------------- */
 
 async function checkStatus() {
+    if (!apiConfigured()) {
+        setBackendStatus(
+            "API config missing. Set window.JOLLI_API_BASE in static/config.js.",
+            false
+        );
+        return;
+    }
+
     try {
-        const response = await fetch(apiUrl("/api/status"));
+        const response = await fetchWithTimeout(apiUrl("/api/status"), {}, 10000);
+
+        if (!response.ok) {
+            setBackendStatus(`Backend error: HTTP ${response.status}`, false);
+            return;
+        }
+
         const data = await response.json();
 
-        statusText.textContent = data.status;
-
-        if (data.ollama_ready) {
-            statusDot.classList.remove("bad");
-            statusDot.classList.add("ok");
-        } else {
-            statusDot.classList.remove("ok");
-            statusDot.classList.add("bad");
-        }
+        setBackendStatus(data.status || "Jolli backend reached.", !!data.ollama_ready);
     } catch (error) {
-        statusText.textContent = "Could not reach Jolli backend.";
-        statusDot.classList.remove("ok");
-        statusDot.classList.add("bad");
+        if (error.name === "AbortError") {
+            setBackendStatus("Backend timed out. Check api.jolli.live.", false);
+        } else {
+            setBackendStatus("Could not reach Jolli backend. Check CORS/API URL.", false);
+        }
     }
 }
 
@@ -166,9 +212,13 @@ async function checkStatus() {
  * --------------------------------------------------------- */
 
 async function createChat(title) {
+    if (!apiConfigured()) {
+        throw new Error("API config missing.");
+    }
+
     setSaveStatus("Creating chat...");
 
-    const response = await fetch(apiUrl("/api/chats"), {
+    const response = await fetchWithTimeout(apiUrl("/api/chats"), {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
@@ -179,7 +229,7 @@ async function createChat(title) {
     });
 
     if (!response.ok) {
-        throw new Error("Failed to create chat.");
+        throw new Error(`Failed to create chat. HTTP ${response.status}`);
     }
 
     const data = await response.json();
@@ -194,13 +244,13 @@ async function createChat(title) {
 }
 
 async function saveMessage(role, content) {
-    if (!currentChatId) {
+    if (!currentChatId || !apiConfigured()) {
         return;
     }
 
     setSaveStatus("Saving...");
 
-    const response = await fetch(apiUrl(`/api/chats/${currentChatId}/messages`), {
+    const response = await fetchWithTimeout(apiUrl(`/api/chats/${currentChatId}/messages`), {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
@@ -224,11 +274,21 @@ async function loadChatHistory() {
         return;
     }
 
+    if (!apiConfigured()) {
+        chatHistory.innerHTML = "";
+
+        const failed = document.createElement("div");
+        failed.className = "history-empty";
+        failed.textContent = "API config missing.";
+        chatHistory.appendChild(failed);
+        return;
+    }
+
     try {
-        const response = await fetch(apiUrl("/api/chats"));
+        const response = await fetchWithTimeout(apiUrl("/api/chats"), {}, 10000);
 
         if (!response.ok) {
-            throw new Error("Failed to load chat history.");
+            throw new Error(`Failed to load chat history. HTTP ${response.status}`);
         }
 
         const data = await response.json();
@@ -281,17 +341,17 @@ async function loadChatHistory() {
 }
 
 async function loadChat(chatId) {
-    if (isBusy) {
+    if (isBusy || !apiConfigured()) {
         return;
     }
 
     try {
         setSaveStatus("Loading chat...");
 
-        const response = await fetch(apiUrl(`/api/chats/${chatId}`));
+        const response = await fetchWithTimeout(apiUrl(`/api/chats/${chatId}`), {}, 10000);
 
         if (!response.ok) {
-            throw new Error("Failed to load chat.");
+            throw new Error(`Failed to load chat. HTTP ${response.status}`);
         }
 
         const data = await response.json();
@@ -344,6 +404,15 @@ async function sendMessage(text) {
         return;
     }
 
+    if (!apiConfigured()) {
+        addMessage(
+            "Jolli",
+            "API config missing. Set window.JOLLI_API_BASE in static/config.js.",
+            "assistant"
+        );
+        return;
+    }
+
     isBusy = true;
 
     const firstMessageInChat = currentChatId === null;
@@ -363,7 +432,7 @@ async function sendMessage(text) {
 
         const jolliBubble = addTypingMessage();
 
-        const response = await fetch(apiUrl("/api/chat"), {
+        const response = await fetchWithTimeout(apiUrl("/api/chat"), {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
@@ -372,10 +441,10 @@ async function sendMessage(text) {
                 message: text,
                 chat_id: currentChatId,
             }),
-        });
+        }, 120000);
 
         if (!response.ok) {
-            throw new Error("Failed to talk to Jolli backend.");
+            throw new Error(`Failed to talk to Jolli backend. HTTP ${response.status}`);
         }
 
         const data = await response.json();
