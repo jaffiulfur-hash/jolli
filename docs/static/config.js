@@ -1,1 +1,1 @@
-window.JOLLI_API_BASE = "https://api.jolli.live";
+window.JOLLI_API_BASE = "http://api.jolli.live";
