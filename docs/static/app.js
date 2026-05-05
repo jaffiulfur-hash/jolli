@@ -228,7 +228,7 @@ function renderWelcomeMessage() {
     clearMessages();
 
     if (currentUser) {
-        addMessage("Jolli", `Welcome back, ${currentUser.username}. Ask me something.`, "assistant");
+        addMessage("Jolli", `Welcome back, ${currentUser.email}. Ask me something.`, "assistant");
     } else {
         addMessage("Jolli", "Jolli Web online. Log in or create an account to chat.", "assistant");
     }
@@ -275,8 +275,8 @@ function showAuthScreen(message = "") {
 
             ${message ? `<p id="auth-message" style="color:#ffb4b4;">${escapeHtml(message)}</p>` : `<p id="auth-message" style="display:none;"></p>`}
 
-            <label style="display:block;margin-top:14px;">Username</label>
-            <input id="auth-username" type="text" autocomplete="username" style="
+            <label style="display:block;margin-top:14px;">Email</label>
+            <input id="auth-email" type="email" autocomplete="email" style="
                 width:100%;
                 box-sizing:border-box;
                 padding:12px;
@@ -330,7 +330,7 @@ function showAuthScreen(message = "") {
         }
     });
 
-    document.getElementById("auth-username").focus();
+    document.getElementById("auth-email").focus();
 }
 
 function setAuthMessage(text, ok = false) {
@@ -355,16 +355,16 @@ function escapeHtml(text) {
 }
 
 async function loginFromAuthScreen() {
-    const username = document.getElementById("auth-username").value.trim();
+    const email = document.getElementById("auth-email").value.trim();
     const password = document.getElementById("auth-password").value;
 
-    if (!username || !password) {
+    if (!email || !password) {
         setAuthMessage("Enter username and password.");
         return;
     }
 
     try {
-        await login(username, password);
+        await login(email, password);
         removeAuthScreen();
         await bootLoggedIn();
     } catch (error) {
@@ -373,16 +373,16 @@ async function loginFromAuthScreen() {
 }
 
 async function registerFromAuthScreen() {
-    const username = document.getElementById("auth-username").value.trim();
+    const email = document.getElementById("auth-email").value.trim();
     const password = document.getElementById("auth-password").value;
 
-    if (!username || !password) {
+    if (!email || !password) {
         setAuthMessage("Enter username and password.");
         return;
     }
 
     try {
-        await register(username, password);
+        await register(email, password);
         removeAuthScreen();
         await bootLoggedIn();
     } catch (error) {
@@ -390,13 +390,13 @@ async function registerFromAuthScreen() {
     }
 }
 
-async function login(username, password) {
+async function login(email, password) {
     const response = await fetchWithTimeout(apiUrl("/api/login"), {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
         },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ email, password }),
     }, 15000);
 
     const data = await response.json().catch(() => ({}));
@@ -411,13 +411,13 @@ async function login(username, password) {
     return data.user;
 }
 
-async function register(username, password) {
+async function register(email, password) {
     const response = await fetchWithTimeout(apiUrl("/api/register"), {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
         },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ email, password }),
     }, 15000);
 
     const data = await response.json().catch(() => ({}));
