@@ -8,14 +8,26 @@ const statusDot = document.getElementById("status-dot");
 const statusText = document.getElementById("status-text");
 
 const newChatBtn = document.getElementById("new-chat-btn");
+const newGroupBtn = document.getElementById("new-group-btn");
 const refreshHistoryBtn = document.getElementById("refresh-history-btn");
+const refreshGroupsBtn = document.getElementById("refresh-groups-btn");
+
 const chatHistory = document.getElementById("chat-history");
+const groupHistory = document.getElementById("group-history");
+
 const activeChatTitle = document.getElementById("active-chat-title");
+const chatModeLabel = document.getElementById("chat-mode-label");
 const saveStatus = document.getElementById("save-status");
 
 let isBusy = false;
+
+let currentMode = "chat"; // "chat" or "group"
 let currentChatId = null;
+let currentGroupId = null;
+
 let currentChatTitle = "New chat";
+let currentGroupTitle = "New group";
+
 let currentUser = null;
 
 /* ---------------------------------------------------------
@@ -55,12 +67,10 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-        const response = await fetch(url, {
+        return await fetch(url, {
             ...options,
             signal: controller.signal,
         });
-
-        return response;
     } finally {
         clearTimeout(timeout);
     }
@@ -125,6 +135,14 @@ function setBackendStatus(text, ok) {
     } else {
         statusDot.classList.remove("ok");
         statusDot.classList.add("bad");
+    }
+}
+
+function setMode(mode) {
+    currentMode = mode;
+
+    if (chatModeLabel) {
+        chatModeLabel.textContent = mode === "group" ? "Current group" : "Current chat";
     }
 }
 
@@ -203,10 +221,14 @@ async function typeIntoBubble(bubble, text) {
 }
 
 function setActiveChatTitle(title) {
-    currentChatTitle = title || "New chat";
+    if (currentMode === "group") {
+        currentGroupTitle = title || "New group";
+    } else {
+        currentChatTitle = title || "New chat";
+    }
 
     if (activeChatTitle) {
-        activeChatTitle.textContent = currentChatTitle;
+        activeChatTitle.textContent = title || (currentMode === "group" ? "New group" : "New chat");
     }
 }
 
@@ -224,13 +246,37 @@ function makeChatTitle(firstMessage) {
     return clean.slice(0, 42) + "...";
 }
 
+function getDisplayName(user) {
+    if (!user) {
+        return "User";
+    }
+
+    return user.username || user.email || "User";
+}
+
 function renderWelcomeMessage() {
     clearMessages();
 
     if (currentUser) {
-        addMessage("Jolli", `Welcome back, ${currentUser.username || currentUser.email}. Ask me something.`, "assistant");
+        addMessage("Jolli", `Welcome back, ${getDisplayName(currentUser)}. Ask me something.`, "assistant");
     } else {
         addMessage("Jolli", "Jolli Web online. Log in or create an account to chat.", "assistant");
+    }
+}
+
+function markActiveSidebarItems() {
+    document.querySelectorAll(".history-item").forEach(item => {
+        item.classList.remove("active");
+    });
+
+    if (currentMode === "chat" && currentChatId) {
+        const item = document.querySelector(`[data-chat-id="${currentChatId}"]`);
+        if (item) item.classList.add("active");
+    }
+
+    if (currentMode === "group" && currentGroupId) {
+        const item = document.querySelector(`[data-group-id="${currentGroupId}"]`);
+        if (item) item.classList.add("active");
     }
 }
 
@@ -328,6 +374,10 @@ function showAuthScreen(message = "") {
                     cursor:pointer;
                 ">Register</button>
             </div>
+
+            <p style="color:#777;font-size:12px;margin-bottom:0;">
+                Login uses email + password. Register uses username + email + password.
+            </p>
         </div>
     `;
 
@@ -371,7 +421,7 @@ async function loginFromAuthScreen() {
     const password = document.getElementById("auth-password").value;
 
     if (!email || !password) {
-        setAuthMessage("Enter username and password.");
+        setAuthMessage("Enter email and password.");
         return;
     }
 
@@ -472,9 +522,13 @@ function addLogoutButton() {
         clearToken();
         currentUser = null;
         currentChatId = null;
+        currentGroupId = null;
+        setMode("chat");
         setActiveChatTitle("New chat");
         setSaveStatus("Logged out");
         renderWelcomeMessage();
+        loadChatHistory();
+        loadGroups();
         showAuthScreen();
     });
 
@@ -519,7 +573,7 @@ async function checkStatus() {
 }
 
 /* ---------------------------------------------------------
- * Chat history API
+ * Private chat history API
  * --------------------------------------------------------- */
 
 async function createChat(title) {
@@ -545,6 +599,8 @@ async function createChat(title) {
     const chat = data.chat || data;
 
     currentChatId = chat.id;
+    currentGroupId = null;
+    setMode("chat");
     setActiveChatTitle(chat.title || title || "New chat");
     setSaveStatus("Chat created");
 
@@ -602,8 +658,9 @@ async function loadChatHistory() {
             const item = document.createElement("button");
             item.type = "button";
             item.className = "history-item";
+            item.dataset.chatId = chat.id;
 
-            if (chat.id === currentChatId) {
+            if (currentMode === "chat" && chat.id === currentChatId) {
                 item.classList.add("active");
             }
 
@@ -651,6 +708,8 @@ async function loadChat(chatId) {
         const data = await response.json();
 
         currentChatId = data.id;
+        currentGroupId = null;
+        setMode("chat");
         setActiveChatTitle(data.title || "Untitled chat");
 
         clearMessages();
@@ -671,9 +730,11 @@ async function loadChat(chatId) {
 
         setSaveStatus("Loaded");
         await loadChatHistory();
+        await loadGroups();
+        markActiveSidebarItems();
     } catch (error) {
         setSaveStatus("Load failed");
-        addMessage("Jolli", "Could not load that chat: " + error, "assistant");
+        addMessage("Jolli", "Could not load that chat: " + error.message, "assistant");
     }
 }
 
@@ -683,10 +744,244 @@ function startNewChat() {
     }
 
     currentChatId = null;
+    currentGroupId = null;
+    setMode("chat");
     setActiveChatTitle("New chat");
     setSaveStatus("Ready");
     renderWelcomeMessage();
     loadChatHistory();
+    loadGroups();
+}
+
+/* ---------------------------------------------------------
+ * Groups API
+ * --------------------------------------------------------- */
+
+async function createGroup(name) {
+    if (!apiConfigured()) {
+        throw new Error("API config missing.");
+    }
+
+    setSaveStatus("Creating group...");
+
+    const response = await apiFetch("/api/groups", {
+        method: "POST",
+        body: JSON.stringify({
+            name: name || "New group",
+        }),
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+        throw new Error(data.detail || `Failed to create group. HTTP ${response.status}`);
+    }
+
+    const group = data.group || data;
+
+    currentGroupId = group.id;
+    currentChatId = null;
+    setMode("group");
+    setActiveChatTitle(group.name || name || "New group");
+    setSaveStatus("Group created");
+
+    await loadGroups();
+    await loadGroup(group.id);
+
+    return group;
+}
+
+async function loadGroups() {
+    if (!groupHistory) {
+        return;
+    }
+
+    if (!apiConfigured()) {
+        groupHistory.innerHTML = "";
+
+        const failed = document.createElement("div");
+        failed.className = "history-empty";
+        failed.textContent = "API config missing.";
+        groupHistory.appendChild(failed);
+        return;
+    }
+
+    if (!isLoggedIn()) {
+        groupHistory.innerHTML = "";
+
+        const empty = document.createElement("div");
+        empty.className = "history-empty";
+        empty.textContent = "Log in to see your groups.";
+        groupHistory.appendChild(empty);
+        return;
+    }
+
+    try {
+        const response = await apiFetch("/api/groups", {}, 10000);
+
+        if (!response.ok) {
+            throw new Error(`Failed to load groups. HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        const groups = data.groups || [];
+
+        groupHistory.innerHTML = "";
+
+        if (groups.length === 0) {
+            const empty = document.createElement("div");
+            empty.className = "history-empty";
+            empty.textContent = "No groups yet.";
+            groupHistory.appendChild(empty);
+            return;
+        }
+
+        for (const group of groups) {
+            const item = document.createElement("button");
+            item.type = "button";
+            item.className = "history-item";
+            item.dataset.groupId = group.id;
+
+            if (currentMode === "group" && group.id === currentGroupId) {
+                item.classList.add("active");
+            }
+
+            const title = document.createElement("span");
+            title.className = "history-title";
+            title.textContent = group.name || "Untitled group";
+
+            const date = document.createElement("span");
+            date.className = "history-date";
+            date.textContent = group.role ? `role: ${group.role}` : (group.updated_at || group.created_at || "");
+
+            item.appendChild(title);
+            item.appendChild(date);
+
+            item.addEventListener("click", () => {
+                loadGroup(group.id);
+            });
+
+            groupHistory.appendChild(item);
+        }
+    } catch (error) {
+        groupHistory.innerHTML = "";
+
+        const failed = document.createElement("div");
+        failed.className = "history-empty";
+        failed.textContent = "Could not load groups.";
+        groupHistory.appendChild(failed);
+    }
+}
+
+async function loadGroup(groupId) {
+    if (isBusy || !apiConfigured() || !isLoggedIn()) {
+        return;
+    }
+
+    try {
+        setSaveStatus("Loading group...");
+
+        const response = await apiFetch(`/api/groups/${groupId}`, {}, 10000);
+
+        if (!response.ok) {
+            throw new Error(`Failed to load group. HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        currentGroupId = data.id;
+        currentChatId = null;
+        setMode("group");
+        setActiveChatTitle(data.name || "Untitled group");
+
+        clearMessages();
+
+        const groupMessages = data.messages || [];
+
+        if (groupMessages.length === 0) {
+            addMessage("Jolli", "This group is empty. Send a message to start.", "assistant");
+        } else {
+            for (const msg of groupMessages) {
+                if (msg.role === "user") {
+                    const sender = msg.username || msg.email || "User";
+                    addMessage(sender, msg.content, "user");
+                } else {
+                    addMessage("Jolli", msg.content, "assistant");
+                }
+            }
+        }
+
+        const members = data.members || [];
+        if (members.length > 0) {
+            const names = members.map(m => m.username || m.email || "user").join(", ");
+            addMessage("Jolli", `Group members: ${names}`, "assistant");
+        }
+
+        setSaveStatus("Group loaded");
+        await loadChatHistory();
+        await loadGroups();
+        markActiveSidebarItems();
+    } catch (error) {
+        setSaveStatus("Group load failed");
+        addMessage("Jolli", "Could not load that group: " + error.message, "assistant");
+    }
+}
+
+async function startNewGroup() {
+    if (isBusy) {
+        return;
+    }
+
+    if (!isLoggedIn()) {
+        showAuthScreen("Please log in before creating a group.");
+        return;
+    }
+
+    const name = prompt("Group name:");
+
+    if (!name || !name.trim()) {
+        return;
+    }
+
+    try {
+        await createGroup(name.trim());
+    } catch (error) {
+        addMessage("Jolli", "Could not create group: " + error.message, "assistant");
+        setSaveStatus("Group error");
+    }
+}
+
+async function addMemberToCurrentGroup() {
+    if (!currentGroupId) {
+        addMessage("Jolli", "Open a group first before adding members.", "assistant");
+        return;
+    }
+
+    const identifier = prompt("Enter member email or username:");
+
+    if (!identifier || !identifier.trim()) {
+        return;
+    }
+
+    try {
+        const response = await apiFetch(`/api/groups/${currentGroupId}/members`, {
+            method: "POST",
+            body: JSON.stringify({
+                identifier: identifier.trim(),
+            }),
+        });
+
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+            throw new Error(data.detail || `Failed to add member. HTTP ${response.status}`);
+        }
+
+        addMessage("Jolli", `Member added: ${data.user?.username || data.user?.email || identifier}`, "assistant");
+        await loadGroup(currentGroupId);
+    } catch (error) {
+        addMessage("Jolli", "Could not add member: " + error.message, "assistant");
+    }
 }
 
 /* ---------------------------------------------------------
@@ -714,47 +1009,16 @@ async function sendMessage(text) {
 
     isBusy = true;
 
-    const firstMessageInChat = currentChatId === null;
-    const title = firstMessageInChat ? makeChatTitle(text) : currentChatTitle;
-
     input.value = "";
     input.disabled = true;
     voiceBtn.disabled = true;
 
     try {
-        if (!currentChatId) {
-            await createChat(title);
+        if (currentMode === "group") {
+            await sendGroupMessage(text);
+        } else {
+            await sendPrivateMessage(text);
         }
-
-        addMessage("You", text, "user");
-
-        const jolliBubble = addTypingMessage();
-
-        const response = await apiFetch("/api/chat", {
-            method: "POST",
-            body: JSON.stringify({
-                message: text,
-                chat_id: currentChatId,
-            }),
-        }, 120000);
-
-        const data = await response.json().catch(() => ({}));
-
-        if (!response.ok) {
-            throw new Error(data.detail || `Failed to talk to Jolli backend. HTTP ${response.status}`);
-        }
-
-        if (data.chat_id) {
-            currentChatId = data.chat_id;
-        }
-
-        const reply = data.reply || "I did not get a response.";
-
-        await typeIntoBubble(jolliBubble, reply);
-
-        speakText(reply);
-        setSaveStatus("Saved");
-        await loadChatHistory();
     } catch (error) {
         const errorText = "Jolli backend error: " + error.message;
         addMessage("Jolli", errorText, "assistant");
@@ -765,6 +1029,76 @@ async function sendMessage(text) {
         input.focus();
         isBusy = false;
     }
+}
+
+async function sendPrivateMessage(text) {
+    const firstMessageInChat = currentChatId === null;
+    const title = firstMessageInChat ? makeChatTitle(text) : currentChatTitle;
+
+    if (!currentChatId) {
+        await createChat(title);
+    }
+
+    addMessage("You", text, "user");
+
+    const jolliBubble = addTypingMessage();
+
+    const response = await apiFetch("/api/chat", {
+        method: "POST",
+        body: JSON.stringify({
+            message: text,
+            chat_id: currentChatId,
+        }),
+    }, 120000);
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+        throw new Error(data.detail || `Failed to talk to Jolli backend. HTTP ${response.status}`);
+    }
+
+    if (data.chat_id) {
+        currentChatId = data.chat_id;
+    }
+
+    const reply = data.reply || "I did not get a response.";
+
+    await typeIntoBubble(jolliBubble, reply);
+
+    speakText(reply);
+    setSaveStatus("Saved");
+    await loadChatHistory();
+}
+
+async function sendGroupMessage(text) {
+    if (!currentGroupId) {
+        throw new Error("Open or create a group first.");
+    }
+
+    addMessage(getDisplayName(currentUser), text, "user");
+
+    const jolliBubble = addTypingMessage();
+
+    const response = await apiFetch(`/api/groups/${currentGroupId}/chat`, {
+        method: "POST",
+        body: JSON.stringify({
+            message: text,
+        }),
+    }, 120000);
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+        throw new Error(data.detail || `Failed to talk in group. HTTP ${response.status}`);
+    }
+
+    const reply = data.reply || "I did not get a response.";
+
+    await typeIntoBubble(jolliBubble, reply);
+
+    speakText(reply);
+    setSaveStatus("Group saved");
+    await loadGroups();
 }
 
 /* ---------------------------------------------------------
@@ -846,9 +1180,28 @@ if (newChatBtn) {
     });
 }
 
+if (newGroupBtn) {
+    newGroupBtn.addEventListener("click", () => {
+        startNewGroup();
+    });
+
+    newGroupBtn.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        addMemberToCurrentGroup();
+    });
+
+    newGroupBtn.title = "Click to create group. Right-click to add member to current group.";
+}
+
 if (refreshHistoryBtn) {
     refreshHistoryBtn.addEventListener("click", () => {
         loadChatHistory();
+    });
+}
+
+if (refreshGroupsBtn) {
+    refreshGroupsBtn.addEventListener("click", () => {
+        loadGroups();
     });
 }
 
@@ -861,6 +1214,7 @@ async function bootLoggedIn() {
     renderWelcomeMessage();
     await checkStatus();
     await loadChatHistory();
+    await loadGroups();
 }
 
 async function boot() {
@@ -876,6 +1230,7 @@ async function boot() {
         renderWelcomeMessage();
         showAuthScreen();
         await loadChatHistory();
+        await loadGroups();
         return;
     }
 
