@@ -47,10 +47,14 @@
                 + New Chat
             </button>
 
+            <button id="new-group-btn" class="new-chat-btn" type="button">
+                + New Group
+            </button>
+
             <div class="history-panel">
                 <div class="history-header">
                     <h2>Chat History</h2>
-                    <button id="refresh-history-btn" class="small-btn" type="button" title="Refresh history">
+                    <button id="refresh-history-btn" class="small-btn" type="button" title="Refresh chat history">
                         ↻
                     </button>
                 </div>
@@ -60,18 +64,32 @@
                 </div>
             </div>
 
+            <div class="history-panel groups-panel">
+                <div class="history-header">
+                    <h2>Groups</h2>
+                    <button id="refresh-groups-btn" class="small-btn" type="button" title="Refresh groups">
+                        ↻
+                    </button>
+                </div>
+
+                <div id="group-history" class="chat-history group-history">
+                    <div class="history-empty">No groups yet.</div>
+                </div>
+            </div>
+
             <div class="commands">
                 <h2>Commands</h2>
                 <p><code>remember text</code></p>
                 <p><code>notes</code></p>
                 <p><code>call me message</code></p>
+                <p><code>groups use shared Jolli chats</code></p>
             </div>
         </section>
 
         <section class="chat" aria-label="Jolli chat">
             <header class="chat-header">
                 <div>
-                    <div class="chat-label">Current chat</div>
+                    <div class="chat-label" id="chat-mode-label">Current chat</div>
                     <h2 id="active-chat-title">New chat</h2>
                 </div>
 
