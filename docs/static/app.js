@@ -228,7 +228,7 @@ function renderWelcomeMessage() {
     clearMessages();
 
     if (currentUser) {
-        addMessage("Jolli", `Welcome back, ${currentUser.email}. Ask me something.`, "assistant");
+        addMessage("Jolli", `Welcome back, ${currentUser.username || currentUser.email}. Ask me something.`, "assistant");
     } else {
         addMessage("Jolli", "Jolli Web online. Log in or create an account to chat.", "assistant");
     }
@@ -274,6 +274,18 @@ function showAuthScreen(message = "") {
             <p style="color:#aaa;">Log in or create an account so your chats stay private.</p>
 
             ${message ? `<p id="auth-message" style="color:#ffb4b4;">${escapeHtml(message)}</p>` : `<p id="auth-message" style="display:none;"></p>`}
+
+            <label style="display:block;margin-top:14px;">Username</label>
+            <input id="auth-username" type="text" autocomplete="username" style="
+                width:100%;
+                box-sizing:border-box;
+                padding:12px;
+                margin-top:6px;
+                border-radius:10px;
+                border:1px solid #333;
+                background:#08080c;
+                color:white;
+            ">
 
             <label style="display:block;margin-top:14px;">Email</label>
             <input id="auth-email" type="email" autocomplete="email" style="
@@ -373,16 +385,17 @@ async function loginFromAuthScreen() {
 }
 
 async function registerFromAuthScreen() {
+    const username = document.getElementById("auth-username").value.trim();
     const email = document.getElementById("auth-email").value.trim();
     const password = document.getElementById("auth-password").value;
 
-    if (!email || !password) {
-        setAuthMessage("Enter username and password.");
+    if (!username || !email || !password) {
+        setAuthMessage("Enter username, email, and password.");
         return;
     }
 
     try {
-        await register(email, password);
+        await register(username, email, password);
         removeAuthScreen();
         await bootLoggedIn();
     } catch (error) {
@@ -411,13 +424,13 @@ async function login(email, password) {
     return data.user;
 }
 
-async function register(email, password) {
+async function register(username, email, password) {
     const response = await fetchWithTimeout(apiUrl("/api/register"), {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
         },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ username, email, password }),
     }, 15000);
 
     const data = await response.json().catch(() => ({}));
