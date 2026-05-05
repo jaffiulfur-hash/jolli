@@ -16,6 +16,27 @@ const saveStatus = document.getElementById("save-status");
 let isBusy = false;
 let currentChatId = null;
 let currentChatTitle = "New chat";
+let currentUser = null;
+
+/* ---------------------------------------------------------
+ * Auth storage
+ * --------------------------------------------------------- */
+
+function getToken() {
+    return localStorage.getItem("jolli_token");
+}
+
+function setToken(token) {
+    localStorage.setItem("jolli_token", token);
+}
+
+function clearToken() {
+    localStorage.removeItem("jolli_token");
+}
+
+function isLoggedIn() {
+    return !!getToken();
+}
 
 /* ---------------------------------------------------------
  * API helper
@@ -23,6 +44,10 @@ let currentChatTitle = "New chat";
 
 function apiUrl(path) {
     return `${API_BASE}${path}`;
+}
+
+function apiConfigured() {
+    return API_BASE.startsWith("https://");
 }
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
@@ -41,8 +66,38 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
     }
 }
 
-function apiConfigured() {
-    return API_BASE.startsWith("https://");
+async function apiFetch(path, options = {}, timeoutMs = 15000) {
+    const token = getToken();
+
+    const headers = {
+        ...(options.headers || {}),
+    };
+
+    if (!(options.body instanceof FormData)) {
+        headers["Content-Type"] = headers["Content-Type"] || "application/json";
+    }
+
+    if (token) {
+        headers.Authorization = `Bearer ${token}`;
+    }
+
+    const response = await fetchWithTimeout(
+        apiUrl(path),
+        {
+            ...options,
+            headers,
+        },
+        timeoutMs
+    );
+
+    if (response.status === 401) {
+        clearToken();
+        currentUser = null;
+        showAuthScreen("Your session expired. Please log in again.");
+        throw new Error("Not authenticated");
+    }
+
+    return response;
 }
 
 /* ---------------------------------------------------------
@@ -171,11 +226,250 @@ function makeChatTitle(firstMessage) {
 
 function renderWelcomeMessage() {
     clearMessages();
-    addMessage("Jolli", "Jolli Web online. Ask me something.", "assistant");
+
+    if (currentUser) {
+        addMessage("Jolli", `Welcome back, ${currentUser.username}. Ask me something.`, "assistant");
+    } else {
+        addMessage("Jolli", "Jolli Web online. Log in or create an account to chat.", "assistant");
+    }
 }
 
 /* ---------------------------------------------------------
- * Ollama/backend status
+ * Auth UI
+ * --------------------------------------------------------- */
+
+function removeAuthScreen() {
+    const existing = document.getElementById("auth-screen");
+    if (existing) {
+        existing.remove();
+    }
+}
+
+function showAuthScreen(message = "") {
+    removeAuthScreen();
+
+    const overlay = document.createElement("div");
+    overlay.id = "auth-screen";
+    overlay.style.position = "fixed";
+    overlay.style.inset = "0";
+    overlay.style.zIndex = "9999";
+    overlay.style.background = "rgba(0, 0, 0, 0.88)";
+    overlay.style.display = "flex";
+    overlay.style.alignItems = "center";
+    overlay.style.justifyContent = "center";
+    overlay.style.padding = "20px";
+
+    overlay.innerHTML = `
+        <div style="
+            width: 100%;
+            max-width: 420px;
+            background: #111118;
+            border: 1px solid #2a2a35;
+            border-radius: 18px;
+            padding: 24px;
+            color: white;
+            box-shadow: 0 20px 80px rgba(0,0,0,0.5);
+        ">
+            <h2 style="margin-top:0;">Jolli Account</h2>
+            <p style="color:#aaa;">Log in or create an account so your chats stay private.</p>
+
+            ${message ? `<p id="auth-message" style="color:#ffb4b4;">${escapeHtml(message)}</p>` : `<p id="auth-message" style="display:none;"></p>`}
+
+            <label style="display:block;margin-top:14px;">Username</label>
+            <input id="auth-username" type="text" autocomplete="username" style="
+                width:100%;
+                box-sizing:border-box;
+                padding:12px;
+                margin-top:6px;
+                border-radius:10px;
+                border:1px solid #333;
+                background:#08080c;
+                color:white;
+            ">
+
+            <label style="display:block;margin-top:14px;">Password</label>
+            <input id="auth-password" type="password" autocomplete="current-password" style="
+                width:100%;
+                box-sizing:border-box;
+                padding:12px;
+                margin-top:6px;
+                border-radius:10px;
+                border:1px solid #333;
+                background:#08080c;
+                color:white;
+            ">
+
+            <div style="display:flex;gap:10px;margin-top:20px;">
+                <button id="login-btn" type="button" style="
+                    flex:1;
+                    padding:12px;
+                    border-radius:10px;
+                    border:0;
+                    cursor:pointer;
+                ">Login</button>
+
+                <button id="register-btn" type="button" style="
+                    flex:1;
+                    padding:12px;
+                    border-radius:10px;
+                    border:0;
+                    cursor:pointer;
+                ">Register</button>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    document.getElementById("login-btn").addEventListener("click", loginFromAuthScreen);
+    document.getElementById("register-btn").addEventListener("click", registerFromAuthScreen);
+
+    document.getElementById("auth-password").addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+            loginFromAuthScreen();
+        }
+    });
+
+    document.getElementById("auth-username").focus();
+}
+
+function setAuthMessage(text, ok = false) {
+    const msg = document.getElementById("auth-message");
+
+    if (!msg) {
+        return;
+    }
+
+    msg.style.display = "block";
+    msg.style.color = ok ? "#9cffb1" : "#ffb4b4";
+    msg.textContent = text;
+}
+
+function escapeHtml(text) {
+    return String(text)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+}
+
+async function loginFromAuthScreen() {
+    const username = document.getElementById("auth-username").value.trim();
+    const password = document.getElementById("auth-password").value;
+
+    if (!username || !password) {
+        setAuthMessage("Enter username and password.");
+        return;
+    }
+
+    try {
+        await login(username, password);
+        removeAuthScreen();
+        await bootLoggedIn();
+    } catch (error) {
+        setAuthMessage(error.message || "Login failed.");
+    }
+}
+
+async function registerFromAuthScreen() {
+    const username = document.getElementById("auth-username").value.trim();
+    const password = document.getElementById("auth-password").value;
+
+    if (!username || !password) {
+        setAuthMessage("Enter username and password.");
+        return;
+    }
+
+    try {
+        await register(username, password);
+        removeAuthScreen();
+        await bootLoggedIn();
+    } catch (error) {
+        setAuthMessage(error.message || "Register failed.");
+    }
+}
+
+async function login(username, password) {
+    const response = await fetchWithTimeout(apiUrl("/api/login"), {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ username, password }),
+    }, 15000);
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+        throw new Error(data.detail || `Login failed. HTTP ${response.status}`);
+    }
+
+    setToken(data.token);
+    currentUser = data.user;
+
+    return data.user;
+}
+
+async function register(username, password) {
+    const response = await fetchWithTimeout(apiUrl("/api/register"), {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ username, password }),
+    }, 15000);
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+        throw new Error(data.detail || `Register failed. HTTP ${response.status}`);
+    }
+
+    setToken(data.token);
+    currentUser = data.user;
+
+    return data.user;
+}
+
+async function loadMe() {
+    const response = await apiFetch("/api/me", {}, 10000);
+
+    if (!response.ok) {
+        throw new Error(`Could not load user. HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    currentUser = data.user;
+    return currentUser;
+}
+
+function addLogoutButton() {
+    if (!newChatBtn || document.getElementById("logout-btn")) {
+        return;
+    }
+
+    const logoutBtn = document.createElement("button");
+    logoutBtn.id = "logout-btn";
+    logoutBtn.className = "new-chat-btn";
+    logoutBtn.type = "button";
+    logoutBtn.textContent = "Logout";
+
+    logoutBtn.addEventListener("click", () => {
+        clearToken();
+        currentUser = null;
+        currentChatId = null;
+        setActiveChatTitle("New chat");
+        setSaveStatus("Logged out");
+        renderWelcomeMessage();
+        showAuthScreen();
+    });
+
+    newChatBtn.insertAdjacentElement("afterend", logoutBtn);
+}
+
+/* ---------------------------------------------------------
+ * Backend status
  * --------------------------------------------------------- */
 
 async function checkStatus() {
@@ -197,7 +491,11 @@ async function checkStatus() {
 
         const data = await response.json();
 
-        setBackendStatus(data.status || "Jolli backend reached.", !!data.ollama_ready);
+        if (data.ollama_ready) {
+            setBackendStatus(data.ollama_status || "Jolli backend online.", true);
+        } else {
+            setBackendStatus(data.ollama_status || "Jolli backend reached, but Ollama is not ready.", false);
+        }
     } catch (error) {
         if (error.name === "AbortError") {
             setBackendStatus("Backend timed out. Check api.jolli.live.", false);
@@ -218,55 +516,28 @@ async function createChat(title) {
 
     setSaveStatus("Creating chat...");
 
-    const response = await fetchWithTimeout(apiUrl("/api/chats"), {
+    const response = await apiFetch("/api/chats", {
         method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-        },
         body: JSON.stringify({
             title: title || "New chat",
         }),
     });
 
+    const data = await response.json().catch(() => ({}));
+
     if (!response.ok) {
-        throw new Error(`Failed to create chat. HTTP ${response.status}`);
+        throw new Error(data.detail || `Failed to create chat. HTTP ${response.status}`);
     }
 
-    const data = await response.json();
+    const chat = data.chat || data;
 
-    currentChatId = data.id;
-    setActiveChatTitle(data.title || title || "New chat");
+    currentChatId = chat.id;
+    setActiveChatTitle(chat.title || title || "New chat");
     setSaveStatus("Chat created");
 
     await loadChatHistory();
 
-    return data;
-}
-
-async function saveMessage(role, content) {
-    if (!currentChatId || !apiConfigured()) {
-        return;
-    }
-
-    setSaveStatus("Saving...");
-
-    const response = await fetchWithTimeout(apiUrl(`/api/chats/${currentChatId}/messages`), {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-            role,
-            content,
-        }),
-    });
-
-    if (!response.ok) {
-        setSaveStatus("Save failed");
-        return;
-    }
-
-    setSaveStatus("Saved");
+    return chat;
 }
 
 async function loadChatHistory() {
@@ -284,8 +555,18 @@ async function loadChatHistory() {
         return;
     }
 
+    if (!isLoggedIn()) {
+        chatHistory.innerHTML = "";
+
+        const empty = document.createElement("div");
+        empty.className = "history-empty";
+        empty.textContent = "Log in to see your chats.";
+        chatHistory.appendChild(empty);
+        return;
+    }
+
     try {
-        const response = await fetchWithTimeout(apiUrl("/api/chats"), {}, 10000);
+        const response = await apiFetch("/api/chats", {}, 10000);
 
         if (!response.ok) {
             throw new Error(`Failed to load chat history. HTTP ${response.status}`);
@@ -341,14 +622,14 @@ async function loadChatHistory() {
 }
 
 async function loadChat(chatId) {
-    if (isBusy || !apiConfigured()) {
+    if (isBusy || !apiConfigured() || !isLoggedIn()) {
         return;
     }
 
     try {
         setSaveStatus("Loading chat...");
 
-        const response = await fetchWithTimeout(apiUrl(`/api/chats/${chatId}`), {}, 10000);
+        const response = await apiFetch(`/api/chats/${chatId}`, {}, 10000);
 
         if (!response.ok) {
             throw new Error(`Failed to load chat. HTTP ${response.status}`);
@@ -413,6 +694,11 @@ async function sendMessage(text) {
         return;
     }
 
+    if (!isLoggedIn()) {
+        showAuthScreen("Please log in before chatting.");
+        return;
+    }
+
     isBusy = true;
 
     const firstMessageInChat = currentChatId === null;
@@ -428,35 +714,36 @@ async function sendMessage(text) {
         }
 
         addMessage("You", text, "user");
-        await saveMessage("user", text);
 
         const jolliBubble = addTypingMessage();
 
-        const response = await fetchWithTimeout(apiUrl("/api/chat"), {
+        const response = await apiFetch("/api/chat", {
             method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
             body: JSON.stringify({
                 message: text,
                 chat_id: currentChatId,
             }),
         }, 120000);
 
+        const data = await response.json().catch(() => ({}));
+
         if (!response.ok) {
-            throw new Error(`Failed to talk to Jolli backend. HTTP ${response.status}`);
+            throw new Error(data.detail || `Failed to talk to Jolli backend. HTTP ${response.status}`);
         }
 
-        const data = await response.json();
+        if (data.chat_id) {
+            currentChatId = data.chat_id;
+        }
+
         const reply = data.reply || "I did not get a response.";
 
         await typeIntoBubble(jolliBubble, reply);
-        await saveMessage("assistant", reply);
 
         speakText(reply);
+        setSaveStatus("Saved");
         await loadChatHistory();
     } catch (error) {
-        const errorText = "Jolli backend error: " + error;
+        const errorText = "Jolli backend error: " + error.message;
         addMessage("Jolli", errorText, "assistant");
         setSaveStatus("Error");
     } finally {
@@ -556,8 +843,39 @@ if (refreshHistoryBtn) {
  * Boot
  * --------------------------------------------------------- */
 
-renderWelcomeMessage();
-checkStatus();
-loadChatHistory();
+async function bootLoggedIn() {
+    addLogoutButton();
+    renderWelcomeMessage();
+    await checkStatus();
+    await loadChatHistory();
+}
 
+async function boot() {
+    if (!apiConfigured()) {
+        renderWelcomeMessage();
+        await checkStatus();
+        return;
+    }
+
+    await checkStatus();
+
+    if (!isLoggedIn()) {
+        renderWelcomeMessage();
+        showAuthScreen();
+        await loadChatHistory();
+        return;
+    }
+
+    try {
+        await loadMe();
+        await bootLoggedIn();
+    } catch (error) {
+        clearToken();
+        currentUser = null;
+        renderWelcomeMessage();
+        showAuthScreen("Please log in again.");
+    }
+}
+
+boot();
 setInterval(checkStatus, 10000);
