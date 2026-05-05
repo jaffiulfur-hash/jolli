@@ -11,30 +11,36 @@
     <meta name="description" content="Jolli, your personal AI assistant.">
 
     <!-- Android / Chromium PWA -->
-    <link rel="manifest" href="./static/manifest.json">
+    <link rel="manifest" href="/static/manifest.json">
 
     <!-- iOS Safari PWA support -->
     <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="Jolli">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <link rel="apple-touch-icon" href="./static/icons/jolli-192.png">
-    <link rel="apple-touch-icon" sizes="192x192" href="./static/icons/jolli-192.png">
-    <link rel="apple-touch-icon" sizes="512x512" href="./static/icons/jolli-512.png">
+
+    <link rel="apple-touch-icon" href="/static/icons/jolli-192.png">
+    <link rel="apple-touch-icon" sizes="192x192" href="/static/icons/jolli-192.png">
+    <link rel="apple-touch-icon" sizes="512x512" href="/static/icons/jolli-512.png">
 
     <!-- Styles -->
-    <link rel="stylesheet" href="./static/style.css">
+    <link rel="stylesheet" href="/static/style.css">
+
+    <!-- Runtime API config + app logic -->
+    <script src="/static/config.js" defer></script>
+    <script src="/static/app.js" defer></script>
 </head>
 <body>
     <main class="app">
-        <section class="sidebar">
+        <section class="sidebar" aria-label="Jolli sidebar">
             <div class="brand">
                 <h1>Jolli</h1>
                 <p class="subtitle">Your local AI assistant</p>
             </div>
 
-            <div class="status-box">
+            <div class="status-box" aria-live="polite">
                 <div id="status-dot" class="dot"></div>
-                <span id="status-text">Checking Ollama...</span>
+                <span id="status-text">Checking Jolli API...</span>
             </div>
 
             <button id="new-chat-btn" class="new-chat-btn" type="button">
@@ -62,19 +68,19 @@
             </div>
         </section>
 
-        <section class="chat">
+        <section class="chat" aria-label="Jolli chat">
             <header class="chat-header">
                 <div>
                     <div class="chat-label">Current chat</div>
                     <h2 id="active-chat-title">New chat</h2>
                 </div>
 
-                <div id="save-status" class="save-status">
+                <div id="save-status" class="save-status" aria-live="polite">
                     Ready
                 </div>
             </header>
 
-            <div id="messages" class="messages">
+            <div id="messages" class="messages" aria-live="polite">
                 <div class="message assistant">
                     <div class="name">Jolli</div>
                     <div class="bubble">Jolli Web online. Ask me something.</div>
@@ -90,9 +96,16 @@
                     spellcheck="true"
                     inputmode="text"
                     placeholder="Talk to Jolli..."
+                    required
                 >
-                <button type="submit">Send</button>
-                <button type="button" id="voice-btn">Speak</button>
+
+                <button type="submit" id="send-btn">
+                    Send
+                </button>
+
+                <button type="button" id="voice-btn">
+                    Speak
+                </button>
             </form>
         </section>
     </main>
@@ -101,15 +114,12 @@
     <script>
         if ("serviceWorker" in navigator) {
             window.addEventListener("load", () => {
-                navigator.serviceWorker.register("./static/service-worker.js")
+                navigator.serviceWorker.register("/static/service-worker.js")
                     .catch((error) => {
                         console.warn("Jolli service worker registration failed:", error);
                     });
             });
         }
     </script>
-
-    <script src="./static/config.js"></script>
-    <script src="./static/app.js"></script>
 </body>
 </html>
