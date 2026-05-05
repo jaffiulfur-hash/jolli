@@ -1,3 +1,4 @@
+cat > web/index.html <<'EOF'
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -24,11 +25,11 @@
     <link rel="apple-touch-icon" sizes="512x512" href="/static/icons/jolli-512.png">
 
     <!-- Styles -->
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/style.css?v=group-debug-1">
 
     <!-- Runtime API config + app logic -->
-    <script src="/static/config.js" defer></script>
-    <script src="/static/app.js" defer></script>
+    <script src="/static/config.js?v=group-debug-1" defer></script>
+    <script src="/static/app.js?v=group-debug-1" defer></script>
 </head>
 <body>
     <main class="app">
@@ -83,6 +84,7 @@
                 <p><code>notes</code></p>
                 <p><code>call me message</code></p>
                 <p><code>groups use shared Jolli chats</code></p>
+                <p><code>right-click + New Group to add member</code></p>
             </div>
         </section>
 
@@ -128,7 +130,18 @@
         </section>
     </main>
 
-    <!-- PWA service worker -->
+    <!-- Debug check -->
+    <script>
+        window.addEventListener("DOMContentLoaded", () => {
+            console.log("Jolli index.html loaded");
+            console.log("new-group-btn exists:", !!document.getElementById("new-group-btn"));
+            console.log("group-history exists:", !!document.getElementById("group-history"));
+            console.log("refresh-groups-btn exists:", !!document.getElementById("refresh-groups-btn"));
+        });
+    </script>
+
+    <!-- Service worker disabled during development to avoid cached old app.js -->
+    <!--
     <script>
         if ("serviceWorker" in navigator) {
             window.addEventListener("load", () => {
@@ -139,5 +152,7 @@
             });
         }
     </script>
+    -->
 </body>
 </html>
+EOF
