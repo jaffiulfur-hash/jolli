@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -6,15 +5,12 @@
 
     <title>Jolli Web</title>
 
-    <!-- Mobile / PWA basics -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="theme-color" content="#08080c">
     <meta name="description" content="Jolli, your personal AI assistant.">
 
-    <!-- Android / Chromium PWA -->
     <link rel="manifest" href="/static/manifest.json">
 
-    <!-- iOS Safari PWA support -->
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="Jolli">
@@ -24,13 +20,12 @@
     <link rel="apple-touch-icon" sizes="192x192" href="/static/icons/jolli-192.png">
     <link rel="apple-touch-icon" sizes="512x512" href="/static/icons/jolli-512.png">
 
-    <!-- Styles -->
-    <link rel="stylesheet" href="/static/style.css?v=group-debug-1">
+    <link rel="stylesheet" href="/static/style.css?v=model-selector-1">
 
-    <!-- Runtime API config + app logic -->
-    <script src="/static/config.js?v=group-debug-1" defer></script>
-    <script src="/static/app.js?v=group-debug-1" defer></script>
+    <script src="/static/config.js?v=model-selector-1" defer></script>
+    <script src="/static/app.js?v=model-selector-1" defer></script>
 </head>
+
 <body>
     <main class="app">
         <section class="sidebar" aria-label="Jolli sidebar">
@@ -42,6 +37,17 @@
             <div class="status-box" aria-live="polite">
                 <div id="status-dot" class="dot"></div>
                 <span id="status-text">Checking Jolli API...</span>
+            </div>
+
+            <div class="model-panel">
+                <label for="model-selector">Model</label>
+
+                <select id="model-selector" class="model-selector">
+                    <option value="llama3.2">Llama 3.2</option>
+                    <option value="qwen3:8b">Qwen3 8B Thinking</option>
+                    <option value="llama3.1:8b">Llama 3.1 8B</option>
+                    <option value="deepseek-r1:8b">DeepSeek R1 8B</option>
+                </select>
             </div>
 
             <button id="new-chat-btn" class="new-chat-btn" type="button">
@@ -130,28 +136,14 @@
         </section>
     </main>
 
-    <!-- Debug check -->
     <script>
         window.addEventListener("DOMContentLoaded", () => {
             console.log("Jolli index.html loaded");
+            console.log("model-selector exists:", !!document.getElementById("model-selector"));
             console.log("new-group-btn exists:", !!document.getElementById("new-group-btn"));
             console.log("group-history exists:", !!document.getElementById("group-history"));
             console.log("refresh-groups-btn exists:", !!document.getElementById("refresh-groups-btn"));
         });
     </script>
-
-    <!-- Service worker disabled during development to avoid cached old app.js -->
-    <!--
-    <script>
-        if ("serviceWorker" in navigator) {
-            window.addEventListener("load", () => {
-                navigator.serviceWorker.register("/static/service-worker.js")
-                    .catch((error) => {
-                        console.warn("Jolli service worker registration failed:", error);
-                    });
-            });
-        }
-    </script>
-    -->
 </body>
 </html>
