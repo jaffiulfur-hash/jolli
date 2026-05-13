@@ -15,9 +15,7 @@ body {
     height: 100vh;
 }
 
-/* ---------------------------------------------------------
- * Sidebar
- * --------------------------------------------------------- */
+/* Sidebar */
 
 .sidebar {
     display: flex;
@@ -68,6 +66,37 @@ body {
     background: #ff4d4d;
 }
 
+/* Model selector */
+
+.model-panel {
+    margin-top: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.model-panel label {
+    color: #aaa;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.model-selector {
+    width: 100%;
+    padding: 12px;
+    background: #181824;
+    color: #f3f3f3;
+    border: 1px solid #2c2c3d;
+    border-radius: 12px;
+    outline: none;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.model-selector:focus {
+    border-color: #6666aa;
+}
+
 .new-chat-btn {
     width: 100%;
     margin-top: 16px;
@@ -85,9 +114,7 @@ body {
     background: #343466;
 }
 
-/* ---------------------------------------------------------
- * Chat history
- * --------------------------------------------------------- */
+/* Chat history */
 
 .history-panel {
     display: flex;
@@ -199,9 +226,7 @@ code {
     border-radius: 6px;
 }
 
-/* ---------------------------------------------------------
- * Main chat area
- * --------------------------------------------------------- */
+/* Main chat area */
 
 .chat {
     display: flex;
@@ -321,9 +346,7 @@ code {
     cursor: not-allowed;
 }
 
-/* ---------------------------------------------------------
- * Typing animation
- * --------------------------------------------------------- */
+/* Typing animation */
 
 .typing-bubble {
     min-width: 72px;
@@ -365,9 +388,7 @@ code {
     }
 }
 
-/* ---------------------------------------------------------
- * Scrollbars
- * --------------------------------------------------------- */
+/* Scrollbars */
 
 .messages::-webkit-scrollbar,
 .chat-history::-webkit-scrollbar {
@@ -385,9 +406,7 @@ code {
     border-radius: 999px;
 }
 
-/* ---------------------------------------------------------
- * Mobile / PWA
- * --------------------------------------------------------- */
+/* Mobile / PWA */
 
 @media (max-width: 900px) {
     .app {
