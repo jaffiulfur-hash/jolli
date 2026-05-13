@@ -3,40 +3,60 @@
 <head>
     <meta charset="UTF-8">
 
-    <title>Jolli Web</title>
+    <title>Jolli iOS</title>
 
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="theme-color" content="#08080c">
     <meta name="description" content="Jolli, your personal AI assistant.">
-
-    <link rel="manifest" href="/static/manifest.json">
 
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="Jolli">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 
-    <link rel="apple-touch-icon" href="/static/icons/jolli-192.png">
-    <link rel="apple-touch-icon" sizes="192x192" href="/static/icons/jolli-192.png">
-    <link rel="apple-touch-icon" sizes="512x512" href="/static/icons/jolli-512.png">
+    <link rel="stylesheet" href="./style.css">
 
-    <link rel="stylesheet" href="/static/style.css?v=model-selector-1">
-
-    <script src="/static/config.js?v=model-selector-1" defer></script>
-    <script src="/static/app.js?v=model-selector-1" defer></script>
+    <script src="./config.js" defer></script>
+    <script src="./app.js" defer></script>
 </head>
 
 <body>
-    <main class="app">
-        <section class="sidebar" aria-label="Jolli sidebar">
-            <div class="brand">
-                <h1>Jolli</h1>
-                <p class="subtitle">Your local AI assistant</p>
+    <section id="auth-screen" class="auth-screen">
+        <div class="auth-card">
+            <div class="jolli-orb"></div>
+
+            <h1>Jolli</h1>
+            <p>Your private AI assistant.</p>
+
+            <input id="login-username" type="text" placeholder="Username">
+            <input id="login-password" type="password" placeholder="Password">
+
+            <button id="login-btn" type="button">Login</button>
+            <button id="create-account-btn" class="ghost-btn" type="button">Create Account</button>
+
+            <p id="auth-message" class="auth-message" style="display:none;"></p>
+            <p class="auth-note">Development build account screen</p>
+        </div>
+    </section>
+
+    <main id="app" class="app hidden">
+        <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+        <section id="mobile-sidebar" class="sidebar" aria-label="Jolli sidebar">
+            <div class="sidebar-top">
+                <div class="brand">
+                    <h1>Jolli</h1>
+                    <p class="subtitle">Your local AI assistant</p>
+                </div>
+
+                <button id="close-sidebar-btn" class="small-btn" type="button">
+                    ×
+                </button>
             </div>
 
             <div class="status-box" aria-live="polite">
                 <div id="status-dot" class="dot"></div>
-                <span id="status-text">Checking Jolli API...</span>
+                <span id="status-text">Checking Jolli service...</span>
             </div>
 
             <div class="model-panel">
@@ -60,14 +80,14 @@
 
             <div class="history-panel">
                 <div class="history-header">
-                    <h2>Chat History</h2>
-                    <button id="refresh-history-btn" class="small-btn" type="button" title="Refresh chat history">
+                    <h2>Recent Chats</h2>
+                    <button id="refresh-history-btn" class="small-btn" type="button" title="Refresh recent chats">
                         ↻
                     </button>
                 </div>
 
                 <div id="chat-history" class="chat-history">
-                    <div class="history-empty">No saved chats yet.</div>
+                    <div class="history-empty">No recent chats yet.</div>
                 </div>
             </div>
 
@@ -90,13 +110,16 @@
                 <p><code>notes</code></p>
                 <p><code>call me message</code></p>
                 <p><code>groups use shared Jolli chats</code></p>
-                <p><code>right-click + New Group to add member</code></p>
             </div>
         </section>
 
         <section class="chat" aria-label="Jolli chat">
             <header class="chat-header">
-                <div>
+                <button id="open-sidebar-btn" class="small-btn menu-btn" type="button">
+                    ☰
+                </button>
+
+                <div class="chat-title-wrap">
                     <div class="chat-label" id="chat-mode-label">Current chat</div>
                     <h2 id="active-chat-title">New chat</h2>
                 </div>
@@ -109,11 +132,15 @@
             <div id="messages" class="messages" aria-live="polite">
                 <div class="message assistant">
                     <div class="name">Jolli</div>
-                    <div class="bubble">Jolli Web online. Ask me something.</div>
+                    <div class="bubble">Jolli iOS online. Ask me something.</div>
                 </div>
             </div>
 
             <form id="chat-form" class="input-bar">
+                <button type="button" id="voice-btn">
+                    🎙
+                </button>
+
                 <input
                     id="message-input"
                     type="text"
@@ -128,17 +155,13 @@
                 <button type="submit" id="send-btn">
                     Send
                 </button>
-
-                <button type="button" id="voice-btn">
-                    Speak
-                </button>
             </form>
         </section>
     </main>
 
     <script>
         window.addEventListener("DOMContentLoaded", () => {
-            console.log("Jolli index.html loaded");
+            console.log("Jolli iOS index.html loaded");
             console.log("model-selector exists:", !!document.getElementById("model-selector"));
             console.log("new-group-btn exists:", !!document.getElementById("new-group-btn"));
             console.log("group-history exists:", !!document.getElementById("group-history"));
