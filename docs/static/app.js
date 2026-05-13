@@ -19,15 +19,19 @@ const activeChatTitle = document.getElementById("active-chat-title");
 const chatModeLabel = document.getElementById("chat-mode-label");
 const saveStatus = document.getElementById("save-status");
 
-let isBusy = false;
+const appShell = document.getElementById("app");
+const authScreen = document.getElementById("auth-screen");
+const sidebar = document.getElementById("mobile-sidebar");
+const sidebarOverlay = document.getElementById("sidebar-overlay");
+const openSidebarBtn = document.getElementById("open-sidebar-btn");
+const closeSidebarBtn = document.getElementById("close-sidebar-btn");
 
-let currentMode = "chat"; // "chat" or "group"
+let isBusy = false;
+let currentMode = "chat";
 let currentChatId = null;
 let currentGroupId = null;
-
 let currentChatTitle = "New chat";
 let currentGroupTitle = "New group";
-
 let currentUser = null;
 
 /* ---------------------------------------------------------
@@ -111,31 +115,44 @@ async function apiFetch(path, options = {}, timeoutMs = 15000) {
 }
 
 /* ---------------------------------------------------------
+ * iOS shell helpers
+ * --------------------------------------------------------- */
+
+function showAppShell() {
+    if (authScreen) authScreen.classList.add("hidden");
+    if (appShell) appShell.classList.remove("hidden");
+}
+
+function hideAppShell() {
+    if (appShell) appShell.classList.add("hidden");
+    if (authScreen) authScreen.classList.remove("hidden");
+}
+
+function openSidebar() {
+    if (sidebar) sidebar.classList.add("open");
+    if (sidebarOverlay) sidebarOverlay.classList.add("show");
+}
+
+function closeSidebar() {
+    if (sidebar) sidebar.classList.remove("open");
+    if (sidebarOverlay) sidebarOverlay.classList.remove("show");
+}
+
+/* ---------------------------------------------------------
  * UI helpers
  * --------------------------------------------------------- */
 
 function setSaveStatus(text) {
-    if (saveStatus) {
-        saveStatus.textContent = text;
-    }
+    if (saveStatus) saveStatus.textContent = text;
 }
 
 function setBackendStatus(text, ok) {
-    if (statusText) {
-        statusText.textContent = text;
-    }
+    if (statusText) statusText.textContent = text;
 
-    if (!statusDot) {
-        return;
-    }
+    if (!statusDot) return;
 
-    if (ok) {
-        statusDot.classList.remove("bad");
-        statusDot.classList.add("ok");
-    } else {
-        statusDot.classList.remove("ok");
-        statusDot.classList.add("bad");
-    }
+    statusDot.classList.toggle("ok", !!ok);
+    statusDot.classList.toggle("bad", !ok);
 }
 
 function setMode(mode) {
@@ -202,21 +219,10 @@ async function typeIntoBubble(bubble, text) {
     bubble.classList.remove("typing-bubble");
     bubble.textContent = "";
 
-    const typingSpeed = 18;
-
     for (let i = 0; i < text.length; i++) {
         bubble.textContent += text[i];
         messages.scrollTop = messages.scrollHeight;
-
-        if (text[i] === "." || text[i] === "!" || text[i] === "?") {
-            await sleep(90);
-        } else if (text[i] === "," || text[i] === ";") {
-            await sleep(45);
-        } else if (text[i] === "\n") {
-            await sleep(60);
-        } else {
-            await sleep(typingSpeed);
-        }
+        await sleep(text[i].match(/[.!?]/) ? 90 : text[i].match(/[,;]/) ? 45 : 18);
     }
 }
 
@@ -234,24 +240,12 @@ function setActiveChatTitle(title) {
 
 function makeChatTitle(firstMessage) {
     const clean = firstMessage.trim().replace(/\s+/g, " ");
-
-    if (!clean) {
-        return "New chat";
-    }
-
-    if (clean.length <= 42) {
-        return clean;
-    }
-
-    return clean.slice(0, 42) + "...";
+    if (!clean) return "New chat";
+    return clean.length <= 42 ? clean : clean.slice(0, 42) + "...";
 }
 
 function getDisplayName(user) {
-    if (!user) {
-        return "User";
-    }
-
-    return user.username || user.email || "User";
+    return user?.username || user?.email || "User";
 }
 
 function renderWelcomeMessage() {
@@ -260,14 +254,12 @@ function renderWelcomeMessage() {
     if (currentUser) {
         addMessage("Jolli", `Welcome back, ${getDisplayName(currentUser)}. Ask me something.`, "assistant");
     } else {
-        addMessage("Jolli", "Jolli Web online. Log in or create an account to chat.", "assistant");
+        addMessage("Jolli", "Jolli iOS online. Log in or create an account to chat.", "assistant");
     }
 }
 
 function markActiveSidebarItems() {
-    document.querySelectorAll(".history-item").forEach(item => {
-        item.classList.remove("active");
-    });
+    document.querySelectorAll(".history-item").forEach(item => item.classList.remove("active"));
 
     if (currentMode === "chat" && currentChatId) {
         const item = document.querySelector(`[data-chat-id="${currentChatId}"]`);
@@ -284,150 +276,42 @@ function markActiveSidebarItems() {
  * Auth UI
  * --------------------------------------------------------- */
 
-function removeAuthScreen() {
-    const existing = document.getElementById("auth-screen");
-    if (existing) {
-        existing.remove();
-    }
-}
-
 function showAuthScreen(message = "") {
-    removeAuthScreen();
+    hideAppShell();
 
-    const overlay = document.createElement("div");
-    overlay.id = "auth-screen";
-    overlay.style.position = "fixed";
-    overlay.style.inset = "0";
-    overlay.style.zIndex = "9999";
-    overlay.style.background = "rgba(0, 0, 0, 0.88)";
-    overlay.style.display = "flex";
-    overlay.style.alignItems = "center";
-    overlay.style.justifyContent = "center";
-    overlay.style.padding = "20px";
-
-    overlay.innerHTML = `
-        <div style="
-            width: 100%;
-            max-width: 420px;
-            background: #111118;
-            border: 1px solid #2a2a35;
-            border-radius: 18px;
-            padding: 24px;
-            color: white;
-            box-shadow: 0 20px 80px rgba(0,0,0,0.5);
-        ">
-            <h2 style="margin-top:0;">Jolli Account</h2>
-            <p style="color:#aaa;">Log in or create an account so your chats stay private.</p>
-
-            ${message ? `<p id="auth-message" style="color:#ffb4b4;">${escapeHtml(message)}</p>` : `<p id="auth-message" style="display:none;"></p>`}
-
-            <label style="display:block;margin-top:14px;">Username</label>
-            <input id="auth-username" type="text" autocomplete="username" style="
-                width:100%;
-                box-sizing:border-box;
-                padding:12px;
-                margin-top:6px;
-                border-radius:10px;
-                border:1px solid #333;
-                background:#08080c;
-                color:white;
-            ">
-
-            <label style="display:block;margin-top:14px;">Email</label>
-            <input id="auth-email" type="email" autocomplete="email" style="
-                width:100%;
-                box-sizing:border-box;
-                padding:12px;
-                margin-top:6px;
-                border-radius:10px;
-                border:1px solid #333;
-                background:#08080c;
-                color:white;
-            ">
-
-            <label style="display:block;margin-top:14px;">Password</label>
-            <input id="auth-password" type="password" autocomplete="current-password" style="
-                width:100%;
-                box-sizing:border-box;
-                padding:12px;
-                margin-top:6px;
-                border-radius:10px;
-                border:1px solid #333;
-                background:#08080c;
-                color:white;
-            ">
-
-            <div style="display:flex;gap:10px;margin-top:20px;">
-                <button id="login-btn" type="button" style="
-                    flex:1;
-                    padding:12px;
-                    border-radius:10px;
-                    border:0;
-                    cursor:pointer;
-                ">Login</button>
-
-                <button id="register-btn" type="button" style="
-                    flex:1;
-                    padding:12px;
-                    border-radius:10px;
-                    border:0;
-                    cursor:pointer;
-                ">Register</button>
-            </div>
-
-            <p style="color:#777;font-size:12px;margin-bottom:0;">
-                Login uses email + password. Register uses username + email + password.
-            </p>
-        </div>
-    `;
-
-    document.body.appendChild(overlay);
-
-    document.getElementById("login-btn").addEventListener("click", loginFromAuthScreen);
-    document.getElementById("register-btn").addEventListener("click", registerFromAuthScreen);
-
-    document.getElementById("auth-password").addEventListener("keydown", (event) => {
-        if (event.key === "Enter") {
-            loginFromAuthScreen();
-        }
-    });
-
-    document.getElementById("auth-email").focus();
+    const msg = document.getElementById("auth-message");
+    if (msg) {
+        msg.textContent = message;
+        msg.style.display = message ? "block" : "none";
+    }
 }
 
 function setAuthMessage(text, ok = false) {
     const msg = document.getElementById("auth-message");
-
-    if (!msg) {
-        return;
-    }
+    if (!msg) return;
 
     msg.style.display = "block";
-    msg.style.color = ok ? "#9cffb1" : "#ffb4b4";
+    msg.classList.toggle("ok", !!ok);
     msg.textContent = text;
 }
 
-function escapeHtml(text) {
-    return String(text)
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
-}
-
 async function loginFromAuthScreen() {
-    const email = document.getElementById("auth-email").value.trim();
-    const password = document.getElementById("auth-password").value;
+    const email = document.getElementById("login-username")?.value.trim()
+        || document.getElementById("auth-email")?.value.trim()
+        || "";
+
+    const password = document.getElementById("login-password")?.value
+        || document.getElementById("auth-password")?.value
+        || "";
 
     if (!email || !password) {
-        setAuthMessage("Enter email and password.");
+        setAuthMessage("Enter email/username and password.");
         return;
     }
 
     try {
         await login(email, password);
-        removeAuthScreen();
+        showAppShell();
         await bootLoggedIn();
     } catch (error) {
         setAuthMessage(error.message || "Login failed.");
@@ -435,18 +319,24 @@ async function loginFromAuthScreen() {
 }
 
 async function registerFromAuthScreen() {
-    const username = document.getElementById("auth-username").value.trim();
-    const email = document.getElementById("auth-email").value.trim();
-    const password = document.getElementById("auth-password").value;
+    const username = document.getElementById("login-username")?.value.trim()
+        || document.getElementById("auth-username")?.value.trim()
+        || "";
 
-    if (!username || !email || !password) {
-        setAuthMessage("Enter username, email, and password.");
+    const email = username.includes("@") ? username : `${username}@jolli.local`;
+
+    const password = document.getElementById("login-password")?.value
+        || document.getElementById("auth-password")?.value
+        || "";
+
+    if (!username || !password) {
+        setAuthMessage("Enter username and password.");
         return;
     }
 
     try {
         await register(username, email, password);
-        removeAuthScreen();
+        showAppShell();
         await bootLoggedIn();
     } catch (error) {
         setAuthMessage(error.message || "Register failed.");
@@ -470,7 +360,6 @@ async function login(email, password) {
 
     setToken(data.token);
     currentUser = data.user;
-
     return data.user;
 }
 
@@ -491,7 +380,6 @@ async function register(username, email, password) {
 
     setToken(data.token);
     currentUser = data.user;
-
     return data.user;
 }
 
@@ -508,9 +396,7 @@ async function loadMe() {
 }
 
 function addLogoutButton() {
-    if (!newChatBtn || document.getElementById("logout-btn")) {
-        return;
-    }
+    if (!newChatBtn || document.getElementById("logout-btn")) return;
 
     const logoutBtn = document.createElement("button");
     logoutBtn.id = "logout-btn";
@@ -530,6 +416,7 @@ function addLogoutButton() {
         loadChatHistory();
         loadGroups();
         showAuthScreen();
+        closeSidebar();
     });
 
     newChatBtn.insertAdjacentElement("afterend", logoutBtn);
@@ -552,22 +439,22 @@ async function checkStatus() {
         const response = await fetchWithTimeout(apiUrl("/api/status"), {}, 10000);
 
         if (!response.ok) {
-            setBackendStatus(`Backend error: HTTP ${response.status}`, false);
+            setBackendStatus(`Service error: HTTP ${response.status}`, false);
             return;
         }
 
         const data = await response.json();
 
-        if (data.ollama_ready) {
-            setBackendStatus(data.ollama_status || "Jolli backend online.", true);
+        if (data.service_online) {
+            setBackendStatus(data.service_status || "Service online", true);
         } else {
-            setBackendStatus(data.ollama_status || "Jolli backend reached, but Ollama is not ready.", false);
+            setBackendStatus("Service offline", false);
         }
     } catch (error) {
         if (error.name === "AbortError") {
-            setBackendStatus("Backend timed out. Check api.jolli.live.", false);
+            setBackendStatus("Service timed out.", false);
         } else {
-            setBackendStatus("Could not reach Jolli backend. Check CORS/API URL.", false);
+            setBackendStatus("Could not reach Jolli service.", false);
         }
     }
 }
@@ -577,17 +464,11 @@ async function checkStatus() {
  * --------------------------------------------------------- */
 
 async function createChat(title) {
-    if (!apiConfigured()) {
-        throw new Error("API config missing.");
-    }
-
     setSaveStatus("Creating chat...");
 
     const response = await apiFetch("/api/chats", {
         method: "POST",
-        body: JSON.stringify({
-            title: title || "New chat",
-        }),
+        body: JSON.stringify({ title: title || "New chat" }),
     });
 
     const data = await response.json().catch(() => ({}));
@@ -605,32 +486,19 @@ async function createChat(title) {
     setSaveStatus("Chat created");
 
     await loadChatHistory();
-
     return chat;
 }
 
 async function loadChatHistory() {
-    if (!chatHistory) {
-        return;
-    }
+    if (!chatHistory) return;
 
     if (!apiConfigured()) {
-        chatHistory.innerHTML = "";
-
-        const failed = document.createElement("div");
-        failed.className = "history-empty";
-        failed.textContent = "API config missing.";
-        chatHistory.appendChild(failed);
+        chatHistory.innerHTML = `<div class="history-empty">API config missing.</div>`;
         return;
     }
 
     if (!isLoggedIn()) {
-        chatHistory.innerHTML = "";
-
-        const empty = document.createElement("div");
-        empty.className = "history-empty";
-        empty.textContent = "Log in to see your chats.";
-        chatHistory.appendChild(empty);
+        chatHistory.innerHTML = `<div class="history-empty">Log in to see your chats.</div>`;
         return;
     }
 
@@ -647,10 +515,7 @@ async function loadChatHistory() {
         chatHistory.innerHTML = "";
 
         if (chats.length === 0) {
-            const empty = document.createElement("div");
-            empty.className = "history-empty";
-            empty.textContent = "No saved chats yet.";
-            chatHistory.appendChild(empty);
+            chatHistory.innerHTML = `<div class="history-empty">No saved chats yet.</div>`;
             return;
         }
 
@@ -664,37 +529,28 @@ async function loadChatHistory() {
                 item.classList.add("active");
             }
 
-            const title = document.createElement("span");
-            title.className = "history-title";
-            title.textContent = chat.title || "Untitled chat";
+            item.innerHTML = `
+                <span class="history-title"></span>
+                <span class="history-date"></span>
+            `;
 
-            const date = document.createElement("span");
-            date.className = "history-date";
-            date.textContent = chat.updated_at || chat.created_at || "";
-
-            item.appendChild(title);
-            item.appendChild(date);
+            item.querySelector(".history-title").textContent = chat.title || "Untitled chat";
+            item.querySelector(".history-date").textContent = chat.updated_at || chat.created_at || "";
 
             item.addEventListener("click", () => {
                 loadChat(chat.id);
+                closeSidebar();
             });
 
             chatHistory.appendChild(item);
         }
-    } catch (error) {
-        chatHistory.innerHTML = "";
-
-        const failed = document.createElement("div");
-        failed.className = "history-empty";
-        failed.textContent = "Could not load chat history.";
-        chatHistory.appendChild(failed);
+    } catch {
+        chatHistory.innerHTML = `<div class="history-empty">Could not load chat history.</div>`;
     }
 }
 
 async function loadChat(chatId) {
-    if (isBusy || !apiConfigured() || !isLoggedIn()) {
-        return;
-    }
+    if (isBusy || !apiConfigured() || !isLoggedIn()) return;
 
     try {
         setSaveStatus("Loading chat...");
@@ -720,11 +576,7 @@ async function loadChat(chatId) {
             addMessage("Jolli", "This chat is empty.", "assistant");
         } else {
             for (const msg of chatMessages) {
-                if (msg.role === "user") {
-                    addMessage("You", msg.content, "user");
-                } else {
-                    addMessage("Jolli", msg.content, "assistant");
-                }
+                addMessage(msg.role === "user" ? "You" : "Jolli", msg.content, msg.role === "user" ? "user" : "assistant");
             }
         }
 
@@ -739,9 +591,7 @@ async function loadChat(chatId) {
 }
 
 function startNewChat() {
-    if (isBusy) {
-        return;
-    }
+    if (isBusy) return;
 
     currentChatId = null;
     currentGroupId = null;
@@ -751,6 +601,7 @@ function startNewChat() {
     renderWelcomeMessage();
     loadChatHistory();
     loadGroups();
+    closeSidebar();
 }
 
 /* ---------------------------------------------------------
@@ -758,17 +609,11 @@ function startNewChat() {
  * --------------------------------------------------------- */
 
 async function createGroup(name) {
-    if (!apiConfigured()) {
-        throw new Error("API config missing.");
-    }
-
     setSaveStatus("Creating group...");
 
     const response = await apiFetch("/api/groups", {
         method: "POST",
-        body: JSON.stringify({
-            name: name || "New group",
-        }),
+        body: JSON.stringify({ name: name || "New group" }),
     });
 
     const data = await response.json().catch(() => ({}));
@@ -792,27 +637,15 @@ async function createGroup(name) {
 }
 
 async function loadGroups() {
-    if (!groupHistory) {
-        return;
-    }
+    if (!groupHistory) return;
 
     if (!apiConfigured()) {
-        groupHistory.innerHTML = "";
-
-        const failed = document.createElement("div");
-        failed.className = "history-empty";
-        failed.textContent = "API config missing.";
-        groupHistory.appendChild(failed);
+        groupHistory.innerHTML = `<div class="history-empty">API config missing.</div>`;
         return;
     }
 
     if (!isLoggedIn()) {
-        groupHistory.innerHTML = "";
-
-        const empty = document.createElement("div");
-        empty.className = "history-empty";
-        empty.textContent = "Log in to see your groups.";
-        groupHistory.appendChild(empty);
+        groupHistory.innerHTML = `<div class="history-empty">Log in to see your groups.</div>`;
         return;
     }
 
@@ -829,10 +662,7 @@ async function loadGroups() {
         groupHistory.innerHTML = "";
 
         if (groups.length === 0) {
-            const empty = document.createElement("div");
-            empty.className = "history-empty";
-            empty.textContent = "No groups yet.";
-            groupHistory.appendChild(empty);
+            groupHistory.innerHTML = `<div class="history-empty">No groups yet.</div>`;
             return;
         }
 
@@ -846,37 +676,29 @@ async function loadGroups() {
                 item.classList.add("active");
             }
 
-            const title = document.createElement("span");
-            title.className = "history-title";
-            title.textContent = group.name || "Untitled group";
+            item.innerHTML = `
+                <span class="history-title"></span>
+                <span class="history-date"></span>
+            `;
 
-            const date = document.createElement("span");
-            date.className = "history-date";
-            date.textContent = group.role ? `role: ${group.role}` : (group.updated_at || group.created_at || "");
-
-            item.appendChild(title);
-            item.appendChild(date);
+            item.querySelector(".history-title").textContent = group.name || "Untitled group";
+            item.querySelector(".history-date").textContent =
+                group.role ? `role: ${group.role}` : (group.updated_at || group.created_at || "");
 
             item.addEventListener("click", () => {
                 loadGroup(group.id);
+                closeSidebar();
             });
 
             groupHistory.appendChild(item);
         }
-    } catch (error) {
-        groupHistory.innerHTML = "";
-
-        const failed = document.createElement("div");
-        failed.className = "history-empty";
-        failed.textContent = "Could not load groups.";
-        groupHistory.appendChild(failed);
+    } catch {
+        groupHistory.innerHTML = `<div class="history-empty">Could not load groups.</div>`;
     }
 }
 
 async function loadGroup(groupId) {
-    if (isBusy || !apiConfigured() || !isLoggedIn()) {
-        return;
-    }
+    if (isBusy || !apiConfigured() || !isLoggedIn()) return;
 
     try {
         setSaveStatus("Loading group...");
@@ -903,18 +725,11 @@ async function loadGroup(groupId) {
         } else {
             for (const msg of groupMessages) {
                 if (msg.role === "user") {
-                    const sender = msg.username || msg.email || "User";
-                    addMessage(sender, msg.content, "user");
+                    addMessage(msg.username || msg.email || "User", msg.content, "user");
                 } else {
                     addMessage("Jolli", msg.content, "assistant");
                 }
             }
-        }
-
-        const members = data.members || [];
-        if (members.length > 0) {
-            const names = members.map(m => m.username || m.email || "user").join(", ");
-            addMessage("Jolli", `Group members: ${names}`, "assistant");
         }
 
         setSaveStatus("Group loaded");
@@ -928,9 +743,7 @@ async function loadGroup(groupId) {
 }
 
 async function startNewGroup() {
-    if (isBusy) {
-        return;
-    }
+    if (isBusy) return;
 
     if (!isLoggedIn()) {
         showAuthScreen("Please log in before creating a group.");
@@ -938,13 +751,11 @@ async function startNewGroup() {
     }
 
     const name = prompt("Group name:");
-
-    if (!name || !name.trim()) {
-        return;
-    }
+    if (!name || !name.trim()) return;
 
     try {
         await createGroup(name.trim());
+        closeSidebar();
     } catch (error) {
         addMessage("Jolli", "Could not create group: " + error.message, "assistant");
         setSaveStatus("Group error");
@@ -958,17 +769,12 @@ async function addMemberToCurrentGroup() {
     }
 
     const identifier = prompt("Enter member email or username:");
-
-    if (!identifier || !identifier.trim()) {
-        return;
-    }
+    if (!identifier || !identifier.trim()) return;
 
     try {
         const response = await apiFetch(`/api/groups/${currentGroupId}/members`, {
             method: "POST",
-            body: JSON.stringify({
-                identifier: identifier.trim(),
-            }),
+            body: JSON.stringify({ identifier: identifier.trim() }),
         });
 
         const data = await response.json().catch(() => ({}));
@@ -989,16 +795,10 @@ async function addMemberToCurrentGroup() {
  * --------------------------------------------------------- */
 
 async function sendMessage(text) {
-    if (isBusy) {
-        return;
-    }
+    if (isBusy) return;
 
     if (!apiConfigured()) {
-        addMessage(
-            "Jolli",
-            "API config missing. Set window.JOLLI_API_BASE in static/config.js.",
-            "assistant"
-        );
+        addMessage("Jolli", "API config missing. Set window.JOLLI_API_BASE in config.js.", "assistant");
         return;
     }
 
@@ -1008,7 +808,6 @@ async function sendMessage(text) {
     }
 
     isBusy = true;
-
     input.value = "";
     input.disabled = true;
     voiceBtn.disabled = true;
@@ -1020,8 +819,7 @@ async function sendMessage(text) {
             await sendPrivateMessage(text);
         }
     } catch (error) {
-        const errorText = "Jolli backend error: " + error.message;
-        addMessage("Jolli", errorText, "assistant");
+        addMessage("Jolli", "Jolli backend error: " + error.message, "assistant");
         setSaveStatus("Error");
     } finally {
         input.disabled = false;
@@ -1057,15 +855,13 @@ async function sendPrivateMessage(text) {
         throw new Error(data.detail || `Failed to talk to Jolli backend. HTTP ${response.status}`);
     }
 
-    if (data.chat_id) {
-        currentChatId = data.chat_id;
-    }
+    if (data.chat_id) currentChatId = data.chat_id;
 
     const reply = data.reply || "I did not get a response.";
 
     await typeIntoBubble(jolliBubble, reply);
-
     speakText(reply);
+
     setSaveStatus("Saved");
     await loadChatHistory();
 }
@@ -1081,9 +877,7 @@ async function sendGroupMessage(text) {
 
     const response = await apiFetch(`/api/groups/${currentGroupId}/chat`, {
         method: "POST",
-        body: JSON.stringify({
-            message: text,
-        }),
+        body: JSON.stringify({ message: text }),
     }, 120000);
 
     const data = await response.json().catch(() => ({}));
@@ -1095,20 +889,18 @@ async function sendGroupMessage(text) {
     const reply = data.reply || "I did not get a response.";
 
     await typeIntoBubble(jolliBubble, reply);
-
     speakText(reply);
+
     setSaveStatus("Group saved");
     await loadGroups();
 }
 
 /* ---------------------------------------------------------
- * Browser speech
+ * Voice: browser fallback + Expo/Vosk bridge
  * --------------------------------------------------------- */
 
 function speakText(text) {
-    if (!("speechSynthesis" in window)) {
-        return;
-    }
+    if (!("speechSynthesis" in window)) return;
 
     speechSynthesis.cancel();
 
@@ -1118,20 +910,26 @@ function speakText(text) {
     speechSynthesis.speak(utterance);
 }
 
-function startBrowserSpeechRecognition() {
-    if (isBusy) {
+function startVoiceInput() {
+    if (isBusy) return;
+
+    if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: "JOLLI_START_VOSK",
+        }));
+
+        addMessage("Jolli", "Listening with Jolli iOS voice...", "assistant");
         return;
     }
 
-    const SpeechRecognition =
-        window.SpeechRecognition || window.webkitSpeechRecognition;
+    startBrowserSpeechRecognition();
+}
+
+function startBrowserSpeechRecognition() {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-        addMessage(
-            "Jolli",
-            "Your browser does not support speech recognition. Try Chromium or Google Chrome.",
-            "assistant"
-        );
+        addMessage("Jolli", "Voice is not available here. In the iOS app, connect this button to the Vosk bridge.", "assistant");
         return;
     }
 
@@ -1144,72 +942,98 @@ function startBrowserSpeechRecognition() {
 
     recognition.start();
 
-    recognition.onresult = (event) => {
+    recognition.onresult = event => {
         const text = event.results[0][0].transcript;
         sendMessage(text);
     };
 
-    recognition.onerror = (event) => {
+    recognition.onerror = event => {
         addMessage("Jolli", "Speech recognition error: " + event.error, "assistant");
     };
 }
+
+window.jolliReceiveVoiceText = function(text) {
+    if (!text || !text.trim()) return;
+    input.value = text.trim();
+    sendMessage(text.trim());
+};
 
 /* ---------------------------------------------------------
  * Events
  * --------------------------------------------------------- */
 
-form.addEventListener("submit", (event) => {
+form.addEventListener("submit", event => {
     event.preventDefault();
 
     const text = input.value.trim();
-
-    if (!text) {
-        return;
-    }
+    if (!text) return;
 
     sendMessage(text);
 });
 
-voiceBtn.addEventListener("click", () => {
-    startBrowserSpeechRecognition();
-});
+voiceBtn.addEventListener("click", startVoiceInput);
 
 if (newChatBtn) {
-    newChatBtn.addEventListener("click", () => {
-        startNewChat();
-    });
+    newChatBtn.addEventListener("click", startNewChat);
 }
 
 if (newGroupBtn) {
-    newGroupBtn.addEventListener("click", () => {
-        startNewGroup();
-    });
+    newGroupBtn.addEventListener("click", startNewGroup);
 
-    newGroupBtn.addEventListener("contextmenu", (event) => {
+    newGroupBtn.addEventListener("contextmenu", event => {
         event.preventDefault();
         addMemberToCurrentGroup();
     });
-
-    newGroupBtn.title = "Click to create group. Right-click to add member to current group.";
 }
 
 if (refreshHistoryBtn) {
-    refreshHistoryBtn.addEventListener("click", () => {
-        loadChatHistory();
-    });
+    refreshHistoryBtn.addEventListener("click", loadChatHistory);
 }
 
 if (refreshGroupsBtn) {
-    refreshGroupsBtn.addEventListener("click", () => {
-        loadGroups();
-    });
+    refreshGroupsBtn.addEventListener("click", loadGroups);
 }
+
+if (openSidebarBtn) {
+    openSidebarBtn.addEventListener("click", openSidebar);
+}
+
+if (closeSidebarBtn) {
+    closeSidebarBtn.addEventListener("click", closeSidebar);
+}
+
+if (sidebarOverlay) {
+    sidebarOverlay.addEventListener("click", closeSidebar);
+}
+
+const loginBtn = document.getElementById("login-btn");
+const createAccountBtn = document.getElementById("create-account-btn");
+
+if (loginBtn) {
+    loginBtn.addEventListener("click", loginFromAuthScreen);
+}
+
+if (createAccountBtn) {
+    createAccountBtn.addEventListener("click", registerFromAuthScreen);
+}
+
+["login-username", "login-password"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+        el.addEventListener("keydown", event => {
+            if (event.key === "Enter") {
+                loginFromAuthScreen();
+            }
+        });
+    }
+});
 
 /* ---------------------------------------------------------
  * Boot
  * --------------------------------------------------------- */
 
 async function bootLoggedIn() {
+    showAppShell();
     addLogoutButton();
     renderWelcomeMessage();
     await checkStatus();
@@ -1218,9 +1042,12 @@ async function bootLoggedIn() {
 }
 
 async function boot() {
+    hideAppShell();
+
     if (!apiConfigured()) {
         renderWelcomeMessage();
         await checkStatus();
+        showAuthScreen("API config missing. Set window.JOLLI_API_BASE in config.js.");
         return;
     }
 
@@ -1237,7 +1064,7 @@ async function boot() {
     try {
         await loadMe();
         await bootLoggedIn();
-    } catch (error) {
+    } catch {
         clearToken();
         currentUser = null;
         renderWelcomeMessage();
