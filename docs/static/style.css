@@ -114,13 +114,13 @@ body {
     background: #343466;
 }
 
-/* Chat history */
+/* Recent chats */
 
 .history-panel {
     display: flex;
     flex-direction: column;
     min-height: 0;
-    margin-top: 22px;
+    margin-top: 18px;
     flex: 1;
 }
 
@@ -129,33 +129,37 @@ body {
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    margin-bottom: 10px;
+    margin-bottom: 8px;
 }
 
 .history-header h2 {
     margin: 0;
-    font-size: 16px;
-    color: #ddd;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #8f8fa3;
+    font-weight: 700;
 }
 
 .small-btn {
     width: 32px;
     height: 32px;
-    background: #181824;
-    color: #ddd;
-    border: 1px solid #2c2c3d;
+    background: transparent;
+    color: #8f8fa3;
+    border: none;
     border-radius: 10px;
     cursor: pointer;
 }
 
 .small-btn:hover {
-    background: #242438;
+    background: #202033;
+    color: #f3f3f3;
 }
 
 .chat-history {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 4px;
     min-height: 0;
     overflow-y: auto;
     padding-right: 4px;
@@ -169,11 +173,11 @@ body {
 
 .history-item {
     width: 100%;
-    padding: 11px 12px;
-    background: #181824;
+    padding: 10px 11px;
+    background: transparent;
     color: #ddd;
-    border: 1px solid #2c2c3d;
-    border-radius: 12px;
+    border: none;
+    border-radius: 10px;
     cursor: pointer;
     text-align: left;
 }
@@ -184,24 +188,21 @@ body {
 
 .history-item.active {
     background: #27274a;
-    border-color: #55558a;
+    border: none;
 }
 
 .history-title {
     display: block;
     color: #f3f3f3;
     font-size: 14px;
-    font-weight: 650;
+    font-weight: 500;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
 .history-date {
-    display: block;
-    margin-top: 4px;
-    color: #8f8fa3;
-    font-size: 12px;
+    display: none;
 }
 
 .commands {
@@ -211,8 +212,10 @@ body {
 }
 
 .commands h2 {
-    font-size: 16px;
-    color: #ddd;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #8f8fa3;
 }
 
 .commands p {
