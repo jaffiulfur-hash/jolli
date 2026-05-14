@@ -54,6 +54,18 @@ function isLoggedIn() {
     return !!getToken();
 }
 
+function authHeaders() {
+    const token = getToken();
+
+    if (!token) {
+        return {};
+    }
+
+    return {
+        Authorization: `Bearer ${token}`,
+    };
+}
+
 /* ---------------------------------------------------------
  * API helper
  * --------------------------------------------------------- */
@@ -460,6 +472,81 @@ async function checkStatus() {
 }
 
 /* ---------------------------------------------------------
+ * Weather with browser location
+ * --------------------------------------------------------- */
+
+function looksLikeWeatherRequest(text) {
+    const lowered = text.toLowerCase();
+
+    const weatherWords = [
+        "weather",
+        "forecast",
+        "temperature",
+        "temp",
+        "rain",
+        "raining",
+        "snow",
+        "snowing",
+        "wind",
+        "windy",
+        "storm",
+        "cloudy",
+        "sunny",
+        "cold",
+        "hot",
+        "degrees",
+    ];
+
+    return weatherWords.some(word => lowered.includes(word));
+}
+
+async function getWeatherWithLocation() {
+    if (!navigator.geolocation) {
+        throw new Error("Your browser does not support location permission.");
+    }
+
+    const position = await new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(
+            resolve,
+            reject,
+            {
+                enableHighAccuracy: false,
+                timeout: 10000,
+                maximumAge: 15 * 60 * 1000,
+            }
+        );
+    });
+
+    const latitude = position.coords.latitude;
+    const longitude = position.coords.longitude;
+
+    const response = await apiFetch("/api/weather", {
+        method: "POST",
+        body: JSON.stringify({
+            latitude,
+            longitude,
+            forecast_days: 3,
+        }),
+    }, 20000);
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+        throw new Error(data.detail || `Weather lookup failed. HTTP ${response.status}`);
+    }
+
+    return data;
+}
+
+function makeWeatherReply(weatherData) {
+    if (!weatherData || !weatherData.summary) {
+        return "I could not read the weather data.";
+    }
+
+    return weatherData.summary;
+}
+
+/* ---------------------------------------------------------
  * Private chat history API
  * --------------------------------------------------------- */
 
@@ -840,6 +927,31 @@ async function sendPrivateMessage(text) {
     addMessage("You", text, "user");
 
     const jolliBubble = addTypingMessage();
+
+    if (looksLikeWeatherRequest(text)) {
+        try {
+            setSaveStatus("Getting weather...");
+
+            const weatherData = await getWeatherWithLocation();
+            const reply = makeWeatherReply(weatherData);
+
+            await typeIntoBubble(jolliBubble, reply);
+            speakText(reply);
+
+            setSaveStatus("Weather updated");
+            return;
+        } catch (error) {
+            jolliBubble.textContent = "";
+            jolliBubble.classList.add("typing-bubble");
+
+            const dots = document.createElement("span");
+            dots.className = "typing-dots";
+            dots.innerHTML = "<span></span><span></span><span></span>";
+            jolliBubble.appendChild(dots);
+
+            setSaveStatus("Weather location unavailable");
+        }
+    }
 
     const response = await apiFetch("/api/chat", {
         method: "POST",
