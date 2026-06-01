@@ -899,16 +899,105 @@ async function sendGroupMessage(text) {
  * Voice: browser fallback + Expo/Vosk bridge
  * --------------------------------------------------------- */
 
+const JolliVoice = {
+    rate: Number(localStorage.getItem("jolli_voice_rate") || "0.95"),
+    pitch: Number(localStorage.getItem("jolli_voice_pitch") || "0.9"),
+    volume: Number(localStorage.getItem("jolli_voice_volume") || "1"),
+    voiceName: localStorage.getItem("jolli_voice_name") || "",
+
+    supported() {
+        return "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
+    },
+
+    stop() {
+        if (this.supported()) {
+            window.speechSynthesis.cancel();
+        }
+    },
+
+    getVoice() {
+        if (!this.supported()) {
+            return null;
+        }
+
+        const voices = window.speechSynthesis.getVoices();
+
+        if (this.voiceName) {
+            const selected = voices.find(voice => voice.name === this.voiceName);
+            if (selected) {
+                return selected;
+            }
+        }
+
+        return (
+            voices.find(voice => voice.lang.toLowerCase().startsWith("en")) ||
+            voices[0] ||
+            null
+        );
+    },
+
+    clean(text) {
+        return String(text || "")
+            .replace(/```[\s\S]*?```/g, "code block omitted")
+            .replace(/https?:\/\/\S+/g, "link omitted")
+            .replace(/\s+/g, " ")
+            .trim()
+            .slice(0, 3000);
+    },
+
+    speak(text) {
+        if (!this.supported()) {
+            return;
+        }
+
+        const cleaned = this.clean(text);
+
+        if (!cleaned) {
+            return;
+        }
+
+        this.stop();
+
+        const utterance = new SpeechSynthesisUtterance(cleaned);
+        const voice = this.getVoice();
+
+        if (voice) {
+            utterance.voice = voice;
+            utterance.lang = voice.lang;
+        } else {
+            utterance.lang = "en-US";
+        }
+
+        utterance.rate = Math.max(0.5, Math.min(2, this.rate));
+        utterance.pitch = Math.max(0, Math.min(2, this.pitch));
+        utterance.volume = Math.max(0, Math.min(1, this.volume));
+
+        window.speechSynthesis.speak(utterance);
+    }
+};
+
+window.JolliVoice = JolliVoice;
+
 function speakText(text) {
-    if (!("speechSynthesis" in window)) return;
-
-    speechSynthesis.cancel();
-
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 0.95;
-    utterance.pitch = 0.9;
-    speechSynthesis.speak(utterance);
+    JolliVoice.speak(text);
 }
+
+window.addEventListener("beforeunload", () => {
+    JolliVoice.stop();
+});
+
+document.addEventListener("click", () => {
+    if (JolliVoice.supported()) {
+        window.speechSynthesis.getVoices();
+    }
+}, { once: true });
+
+if ("speechSynthesis" in window) {
+    window.speechSynthesis.onvoiceschanged = () => {
+        JolliVoice.getVoice();
+    };
+}
+
 
 function startVoiceInput() {
     if (isBusy) return;
