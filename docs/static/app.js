@@ -1,11 +1,25 @@
-const API_BASE = (window.JOLLI_API_BASE || "").replace(/\/$/, "");
+"use strict";
+
+/* ---------------------------------------------------------
+ * Jolli AI Web Client
+ * OpenAI API backend edition
+ * --------------------------------------------------------- */
+
+const API_BASE = (window.JOLLI_API_BASE || "").replace(/\/$/, "") || window.location.origin;
+
+/* ---------------------------------------------------------
+ * DOM
+ * --------------------------------------------------------- */
 
 const messages = document.getElementById("messages");
 const form = document.getElementById("chat-form");
 const input = document.getElementById("message-input");
 const voiceBtn = document.getElementById("voice-btn");
+const sendBtn = document.getElementById("send-btn");
+
 const statusDot = document.getElementById("status-dot");
 const statusText = document.getElementById("status-text");
+const modelName = document.getElementById("model-name");
 
 const newChatBtn = document.getElementById("new-chat-btn");
 const newGroupBtn = document.getElementById("new-group-btn");
@@ -19,54 +33,46 @@ const activeChatTitle = document.getElementById("active-chat-title");
 const chatModeLabel = document.getElementById("chat-mode-label");
 const saveStatus = document.getElementById("save-status");
 
-const appShell = document.getElementById("app");
-const authScreen = document.getElementById("auth-screen");
-const sidebar = document.getElementById("mobile-sidebar");
-const sidebarOverlay = document.getElementById("sidebar-overlay");
-const openSidebarBtn = document.getElementById("open-sidebar-btn");
-const closeSidebarBtn = document.getElementById("close-sidebar-btn");
+const sidebar =
+    document.getElementById("mobile-sidebar") ||
+    document.querySelector(".sidebar");
 
-let isBusy = false;
-let currentMode = "chat";
-let currentChatId = null;
-let currentGroupId = null;
-let currentChatTitle = "New chat";
-let currentGroupTitle = "New group";
-let currentUser = null;
+const sidebarOverlay =
+    document.getElementById("sidebar-overlay") ||
+    document.querySelector(".sidebar-overlay");
+
+const openSidebarBtn =
+    document.getElementById("open-sidebar-btn") ||
+    document.querySelector(".menu-btn");
+
+const closeSidebarBtn =
+    document.getElementById("close-sidebar-btn");
+
+const suggestionButtons = document.querySelectorAll(".suggestion-chip");
 
 /* ---------------------------------------------------------
- * Auth storage
+ * State
  * --------------------------------------------------------- */
 
-function getToken() {
-    return localStorage.getItem("jolli_token");
-}
+let isBusy = false;
+let backendOnline = false;
 
-function setToken(token) {
-    localStorage.setItem("jolli_token", token);
-}
+let currentMode = "chat";
+let currentChatId = localStorage.getItem("jolli_current_chat_id") || null;
+let currentChatTitle = localStorage.getItem("jolli_current_chat_title") || "New chat";
 
-function clearToken() {
-    localStorage.removeItem("jolli_token");
-}
-
-function isLoggedIn() {
-    return !!getToken();
-}
+let localHistory = [];
+let currentModel = "OpenAI";
 
 /* ---------------------------------------------------------
- * API helper
+ * API helpers
  * --------------------------------------------------------- */
 
 function apiUrl(path) {
     return `${API_BASE}${path}`;
 }
 
-function apiConfigured() {
-    return API_BASE.startsWith("https://");
-}
-
-async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
+async function fetchWithTimeout(url, options = {}, timeoutMs = 30000) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -80,19 +86,13 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
     }
 }
 
-async function apiFetch(path, options = {}, timeoutMs = 15000) {
-    const token = getToken();
-
+async function apiFetch(path, options = {}, timeoutMs = 30000) {
     const headers = {
         ...(options.headers || {}),
     };
 
     if (!(options.body instanceof FormData)) {
         headers["Content-Type"] = headers["Content-Type"] || "application/json";
-    }
-
-    if (token) {
-        headers.Authorization = `Bearer ${token}`;
     }
 
     const response = await fetchWithTimeout(
@@ -104,38 +104,19 @@ async function apiFetch(path, options = {}, timeoutMs = 15000) {
         timeoutMs
     );
 
-    if (response.status === 401) {
-        clearToken();
-        currentUser = null;
-        showAuthScreen("Your session expired. Please log in again.");
-        throw new Error("Not authenticated");
-    }
-
     return response;
 }
 
-/* ---------------------------------------------------------
- * iOS shell helpers
- * --------------------------------------------------------- */
-
-function showAppShell() {
-    if (authScreen) authScreen.classList.add("hidden");
-    if (appShell) appShell.classList.remove("hidden");
+async function readJsonResponse(response) {
+    try {
+        return await response.json();
+    } catch {
+        return {};
+    }
 }
 
-function hideAppShell() {
-    if (appShell) appShell.classList.add("hidden");
-    if (authScreen) authScreen.classList.remove("hidden");
-}
-
-function openSidebar() {
-    if (sidebar) sidebar.classList.add("open");
-    if (sidebarOverlay) sidebarOverlay.classList.add("show");
-}
-
-function closeSidebar() {
-    if (sidebar) sidebar.classList.remove("open");
-    if (sidebarOverlay) sidebarOverlay.classList.remove("show");
+function getErrorMessage(data, fallback) {
+    return data?.error || data?.detail || data?.message || fallback;
 }
 
 /* ---------------------------------------------------------
@@ -143,16 +124,33 @@ function closeSidebar() {
  * --------------------------------------------------------- */
 
 function setSaveStatus(text) {
-    if (saveStatus) saveStatus.textContent = text;
+    if (saveStatus) {
+        saveStatus.textContent = text;
+    }
 }
 
-function setBackendStatus(text, ok) {
-    if (statusText) statusText.textContent = text;
+function setBackendStatus(text, ok, warn = false) {
+    backendOnline = !!ok;
 
-    if (!statusDot) return;
+    if (statusText) {
+        statusText.textContent = text;
+    }
+
+    if (!statusDot) {
+        return;
+    }
 
     statusDot.classList.toggle("ok", !!ok);
-    statusDot.classList.toggle("bad", !ok);
+    statusDot.classList.toggle("bad", !ok && !warn);
+    statusDot.classList.toggle("warn", !!warn);
+}
+
+function setModelName(text) {
+    currentModel = text || "OpenAI";
+
+    if (modelName) {
+        modelName.textContent = currentModel;
+    }
 }
 
 function setMode(mode) {
@@ -163,37 +161,224 @@ function setMode(mode) {
     }
 }
 
-function clearMessages() {
-    messages.innerHTML = "";
+function setActiveChatTitle(title) {
+    currentChatTitle = title || "New chat";
+
+    localStorage.setItem("jolli_current_chat_title", currentChatTitle);
+
+    if (activeChatTitle) {
+        activeChatTitle.textContent = currentChatTitle;
+    }
 }
 
-function addMessage(name, text, type) {
-    const wrapper = document.createElement("div");
-    wrapper.className = `message ${type}`;
+function setCurrentChatId(chatId) {
+    currentChatId = chatId || null;
+
+    if (currentChatId) {
+        localStorage.setItem("jolli_current_chat_id", currentChatId);
+    } else {
+        localStorage.removeItem("jolli_current_chat_id");
+    }
+}
+
+function clearMessages() {
+    if (messages) {
+        messages.innerHTML = "";
+    }
+
+    localHistory = [];
+}
+
+function scrollMessagesToBottom() {
+    if (messages) {
+        messages.scrollTop = messages.scrollHeight;
+    }
+}
+
+function makeChatTitle(text) {
+    const clean = String(text || "").trim().replace(/\s+/g, " ");
+
+    if (!clean) {
+        return "New chat";
+    }
+
+    return clean.length > 42 ? clean.slice(0, 42).trimEnd() + "..." : clean;
+}
+
+function formatDate(value) {
+    if (!value) {
+        return "";
+    }
+
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+        return value;
+    }
+
+    return date.toLocaleString([], {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+    });
+}
+
+function openSidebar() {
+    if (sidebar) {
+        sidebar.classList.add("open");
+    }
+
+    if (sidebarOverlay) {
+        sidebarOverlay.classList.add("show");
+    }
+}
+
+function closeSidebar() {
+    if (sidebar) {
+        sidebar.classList.remove("open");
+    }
+
+    if (sidebarOverlay) {
+        sidebarOverlay.classList.remove("show");
+    }
+}
+
+function setBusy(busy) {
+    isBusy = busy;
+
+    if (input) {
+        input.disabled = busy;
+    }
+
+    if (voiceBtn) {
+        voiceBtn.disabled = busy;
+    }
+
+    if (sendBtn) {
+        sendBtn.disabled = busy;
+    }
+}
+
+/* ---------------------------------------------------------
+ * Safe message rendering
+ * --------------------------------------------------------- */
+
+function appendTextWithCodeBlocks(container, text) {
+    const content = String(text || "");
+    const parts = content.split(/```/g);
+
+    parts.forEach((part, index) => {
+        if (index % 2 === 1) {
+            const pre = document.createElement("pre");
+            const code = document.createElement("code");
+
+            const cleaned = part.replace(/^\w+\n/, "");
+            code.textContent = cleaned.trim();
+
+            pre.appendChild(code);
+            container.appendChild(pre);
+            return;
+        }
+
+        const lines = part.split("\n");
+
+        lines.forEach((line, lineIndex) => {
+            if (lineIndex > 0) {
+                container.appendChild(document.createElement("br"));
+            }
+
+            container.appendChild(document.createTextNode(line));
+        });
+    });
+}
+
+function createMessageElement(name, text, type) {
+    const wrapper = document.createElement("article");
+    wrapper.className = `message ${type || "assistant"}`;
+
+    const avatar = document.createElement("div");
+    avatar.className = "avatar";
+    avatar.setAttribute("aria-hidden", "true");
+    avatar.textContent = type === "user" ? "Y" : "J";
+
+    const body = document.createElement("div");
+    body.className = "message-body";
 
     const nameDiv = document.createElement("div");
     nameDiv.className = "name";
-    nameDiv.textContent = name;
+    nameDiv.textContent = name || (type === "user" ? "You" : "Jolli AI");
 
     const bubble = document.createElement("div");
     bubble.className = "bubble";
-    bubble.textContent = text;
 
-    wrapper.appendChild(nameDiv);
-    wrapper.appendChild(bubble);
-    messages.appendChild(wrapper);
-    messages.scrollTop = messages.scrollHeight;
+    appendTextWithCodeBlocks(bubble, text);
 
-    return bubble;
+    body.appendChild(nameDiv);
+    body.appendChild(bubble);
+
+    if (type === "user") {
+        wrapper.appendChild(body);
+        wrapper.appendChild(avatar);
+    } else {
+        wrapper.appendChild(avatar);
+        wrapper.appendChild(body);
+    }
+
+    return {
+        wrapper,
+        bubble,
+        body,
+    };
+}
+
+function addMessage(name, text, type = "assistant", options = {}) {
+    if (!messages) {
+        return null;
+    }
+
+    const created = createMessageElement(name, text, type);
+
+    if (options.error) {
+        created.wrapper.classList.add("error");
+    }
+
+    messages.appendChild(created.wrapper);
+    scrollMessagesToBottom();
+
+    if (!options.skipHistory && (type === "user" || type === "assistant")) {
+        localHistory.push({
+            role: type === "user" ? "user" : "assistant",
+            content: String(text || ""),
+        });
+
+        if (localHistory.length > 40) {
+            localHistory = localHistory.slice(-40);
+        }
+    }
+
+    return created.bubble;
 }
 
 function addTypingMessage() {
-    const wrapper = document.createElement("div");
+    if (!messages) {
+        return null;
+    }
+
+    const wrapper = document.createElement("article");
     wrapper.className = "message assistant";
+
+    const avatar = document.createElement("div");
+    avatar.className = "avatar";
+    avatar.setAttribute("aria-hidden", "true");
+    avatar.textContent = "J";
+
+    const body = document.createElement("div");
+    body.className = "message-body";
 
     const nameDiv = document.createElement("div");
     nameDiv.className = "name";
-    nameDiv.textContent = "Jolli";
+    nameDiv.textContent = "Jolli AI";
 
     const bubble = document.createElement("div");
     bubble.className = "bubble typing-bubble";
@@ -203,10 +388,14 @@ function addTypingMessage() {
     dots.innerHTML = "<span></span><span></span><span></span>";
 
     bubble.appendChild(dots);
-    wrapper.appendChild(nameDiv);
-    wrapper.appendChild(bubble);
+    body.appendChild(nameDiv);
+    body.appendChild(bubble);
+
+    wrapper.appendChild(avatar);
+    wrapper.appendChild(body);
+
     messages.appendChild(wrapper);
-    messages.scrollTop = messages.scrollHeight;
+    scrollMessagesToBottom();
 
     return bubble;
 }
@@ -216,210 +405,71 @@ function sleep(ms) {
 }
 
 async function typeIntoBubble(bubble, text) {
+    if (!bubble) {
+        return;
+    }
+
+    const content = String(text || "");
+
     bubble.classList.remove("typing-bubble");
     bubble.textContent = "";
 
-    for (let i = 0; i < text.length; i++) {
-        bubble.textContent += text[i];
-        messages.scrollTop = messages.scrollHeight;
-        await sleep(text[i].match(/[.!?]/) ? 90 : text[i].match(/[,;]/) ? 45 : 18);
-    }
-}
+    const shouldAnimate = content.length <= 2400 && !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-function setActiveChatTitle(title) {
-    if (currentMode === "group") {
-        currentGroupTitle = title || "New group";
-    } else {
-        currentChatTitle = title || "New chat";
+    if (!shouldAnimate) {
+        appendTextWithCodeBlocks(bubble, content);
+        scrollMessagesToBottom();
+        return;
     }
 
-    if (activeChatTitle) {
-        activeChatTitle.textContent = title || (currentMode === "group" ? "New group" : "New chat");
+    for (let i = 0; i < content.length; i++) {
+        bubble.textContent += content[i];
+
+        if (i % 3 === 0) {
+            scrollMessagesToBottom();
+        }
+
+        const char = content[i];
+
+        if (char === "." || char === "!" || char === "?") {
+            await sleep(32);
+        } else if (char === "," || char === ";" || char === ":") {
+            await sleep(16);
+        } else {
+            await sleep(7);
+        }
     }
-}
 
-function makeChatTitle(firstMessage) {
-    const clean = firstMessage.trim().replace(/\s+/g, " ");
-    if (!clean) return "New chat";
-    return clean.length <= 42 ? clean : clean.slice(0, 42) + "...";
-}
-
-function getDisplayName(user) {
-    return user?.username || user?.email || "User";
+    bubble.textContent = "";
+    appendTextWithCodeBlocks(bubble, content);
+    scrollMessagesToBottom();
 }
 
 function renderWelcomeMessage() {
     clearMessages();
 
-    if (currentUser) {
-        addMessage("Jolli", `Welcome back, ${getDisplayName(currentUser)}. Ask me something.`, "assistant");
-    } else {
-        addMessage("Jolli", "Jolli iOS online. Log in or create an account to chat.", "assistant");
-    }
+    addMessage(
+        "Jolli AI",
+        "Jolli AI is online. Ask me anything.",
+        "assistant",
+        {
+            skipHistory: true,
+        }
+    );
 }
 
 function markActiveSidebarItems() {
-    document.querySelectorAll(".history-item").forEach(item => item.classList.remove("active"));
-
-    if (currentMode === "chat" && currentChatId) {
-        const item = document.querySelector(`[data-chat-id="${currentChatId}"]`);
-        if (item) item.classList.add("active");
-    }
-
-    if (currentMode === "group" && currentGroupId) {
-        const item = document.querySelector(`[data-group-id="${currentGroupId}"]`);
-        if (item) item.classList.add("active");
-    }
-}
-
-/* ---------------------------------------------------------
- * Auth UI
- * --------------------------------------------------------- */
-
-function showAuthScreen(message = "") {
-    hideAppShell();
-
-    const msg = document.getElementById("auth-message");
-    if (msg) {
-        msg.textContent = message;
-        msg.style.display = message ? "block" : "none";
-    }
-}
-
-function setAuthMessage(text, ok = false) {
-    const msg = document.getElementById("auth-message");
-    if (!msg) return;
-
-    msg.style.display = "block";
-    msg.classList.toggle("ok", !!ok);
-    msg.textContent = text;
-}
-
-async function loginFromAuthScreen() {
-    const email = document.getElementById("login-username")?.value.trim()
-        || document.getElementById("auth-email")?.value.trim()
-        || "";
-
-    const password = document.getElementById("login-password")?.value
-        || document.getElementById("auth-password")?.value
-        || "";
-
-    if (!email || !password) {
-        setAuthMessage("Enter email/username and password.");
-        return;
-    }
-
-    try {
-        await login(email, password);
-        showAppShell();
-        await bootLoggedIn();
-    } catch (error) {
-        setAuthMessage(error.message || "Login failed.");
-    }
-}
-
-async function registerFromAuthScreen() {
-    const username = document.getElementById("login-username")?.value.trim()
-        || document.getElementById("auth-username")?.value.trim()
-        || "";
-
-    const email = username.includes("@") ? username : `${username}@jolli.local`;
-
-    const password = document.getElementById("login-password")?.value
-        || document.getElementById("auth-password")?.value
-        || "";
-
-    if (!username || !password) {
-        setAuthMessage("Enter username and password.");
-        return;
-    }
-
-    try {
-        await register(username, email, password);
-        showAppShell();
-        await bootLoggedIn();
-    } catch (error) {
-        setAuthMessage(error.message || "Register failed.");
-    }
-}
-
-async function login(email, password) {
-    const response = await fetchWithTimeout(apiUrl("/api/login"), {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ email, password }),
-    }, 15000);
-
-    const data = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-        throw new Error(data.detail || `Login failed. HTTP ${response.status}`);
-    }
-
-    setToken(data.token);
-    currentUser = data.user;
-    return data.user;
-}
-
-async function register(username, email, password) {
-    const response = await fetchWithTimeout(apiUrl("/api/register"), {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ username, email, password }),
-    }, 15000);
-
-    const data = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-        throw new Error(data.detail || `Register failed. HTTP ${response.status}`);
-    }
-
-    setToken(data.token);
-    currentUser = data.user;
-    return data.user;
-}
-
-async function loadMe() {
-    const response = await apiFetch("/api/me", {}, 10000);
-
-    if (!response.ok) {
-        throw new Error(`Could not load user. HTTP ${response.status}`);
-    }
-
-    const data = await response.json();
-    currentUser = data.user;
-    return currentUser;
-}
-
-function addLogoutButton() {
-    if (!newChatBtn || document.getElementById("logout-btn")) return;
-
-    const logoutBtn = document.createElement("button");
-    logoutBtn.id = "logout-btn";
-    logoutBtn.className = "new-chat-btn";
-    logoutBtn.type = "button";
-    logoutBtn.textContent = "Logout";
-
-    logoutBtn.addEventListener("click", () => {
-        clearToken();
-        currentUser = null;
-        currentChatId = null;
-        currentGroupId = null;
-        setMode("chat");
-        setActiveChatTitle("New chat");
-        setSaveStatus("Logged out");
-        renderWelcomeMessage();
-        loadChatHistory();
-        loadGroups();
-        showAuthScreen();
-        closeSidebar();
+    document.querySelectorAll(".history-item").forEach(item => {
+        item.classList.remove("active");
     });
 
-    newChatBtn.insertAdjacentElement("afterend", logoutBtn);
+    if (currentChatId) {
+        const active = document.querySelector(`[data-chat-id="${currentChatId}"]`);
+
+        if (active) {
+            active.classList.add("active");
+        }
+    }
 }
 
 /* ---------------------------------------------------------
@@ -427,95 +477,53 @@ function addLogoutButton() {
  * --------------------------------------------------------- */
 
 async function checkStatus() {
-    if (!apiConfigured()) {
-        setBackendStatus(
-            "API config missing. Set window.JOLLI_API_BASE in static/config.js.",
-            false
-        );
-        return;
-    }
-
     try {
-        const response = await fetchWithTimeout(apiUrl("/api/status"), {}, 10000);
+        const response = await apiFetch("/api/health", {}, 10000);
+        const data = await readJsonResponse(response);
 
-        if (!response.ok) {
-            setBackendStatus(`Service error: HTTP ${response.status}`, false);
-            return;
+        if (!response.ok || !data.ok) {
+            setBackendStatus(`Backend error: HTTP ${response.status}`, false);
+            return false;
         }
 
-        const data = await response.json();
-
-        if (data.service_online) {
-            setBackendStatus(data.service_status || "Service online", true);
-        } else {
-            setBackendStatus("Service offline", false);
-        }
+        const model = data.model || "OpenAI";
+        setModelName(model);
+        setBackendStatus("Jolli service online", true);
+        return true;
     } catch (error) {
         if (error.name === "AbortError") {
-            setBackendStatus("Service timed out.", false);
+            setBackendStatus("Jolli service timed out", false);
         } else {
-            setBackendStatus("Could not reach Jolli service.", false);
+            setBackendStatus("Could not reach Jolli service", false);
         }
+
+        return false;
     }
 }
 
 /* ---------------------------------------------------------
- * Private chat history API
+ * Chat history
  * --------------------------------------------------------- */
 
-async function createChat(title) {
-    setSaveStatus("Creating chat...");
-
-    const response = await apiFetch("/api/chats", {
-        method: "POST",
-        body: JSON.stringify({ title: title || "New chat" }),
-    });
-
-    const data = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-        throw new Error(data.detail || `Failed to create chat. HTTP ${response.status}`);
-    }
-
-    const chat = data.chat || data;
-
-    currentChatId = chat.id;
-    currentGroupId = null;
-    setMode("chat");
-    setActiveChatTitle(chat.title || title || "New chat");
-    setSaveStatus("Chat created");
-
-    await loadChatHistory();
-    return chat;
-}
-
 async function loadChatHistory() {
-    if (!chatHistory) return;
-
-    if (!apiConfigured()) {
-        chatHistory.innerHTML = `<div class="history-empty">API config missing.</div>`;
-        return;
-    }
-
-    if (!isLoggedIn()) {
-        chatHistory.innerHTML = `<div class="history-empty">Log in to see your chats.</div>`;
+    if (!chatHistory) {
         return;
     }
 
     try {
         const response = await apiFetch("/api/chats", {}, 10000);
+        const data = await readJsonResponse(response);
 
-        if (!response.ok) {
-            throw new Error(`Failed to load chat history. HTTP ${response.status}`);
+        if (!response.ok || !data.ok) {
+            throw new Error(getErrorMessage(data, `HTTP ${response.status}`));
         }
 
-        const data = await response.json();
         const chats = data.chats || [];
 
         chatHistory.innerHTML = "";
 
         if (chats.length === 0) {
-            chatHistory.innerHTML = `<div class="history-empty">No saved chats yet.</div>`;
+            chatHistory.innerHTML = `<div class="history-empty">No recent chats yet.</div>`;
             return;
         }
 
@@ -525,17 +533,20 @@ async function loadChatHistory() {
             item.className = "history-item";
             item.dataset.chatId = chat.id;
 
-            if (currentMode === "chat" && chat.id === currentChatId) {
+            if (chat.id === currentChatId) {
                 item.classList.add("active");
             }
 
-            item.innerHTML = `
-                <span class="history-title"></span>
-                <span class="history-date"></span>
-            `;
+            const title = document.createElement("span");
+            title.className = "history-title";
+            title.textContent = chat.title || "Untitled chat";
 
-            item.querySelector(".history-title").textContent = chat.title || "Untitled chat";
-            item.querySelector(".history-date").textContent = chat.updated_at || chat.created_at || "";
+            const date = document.createElement("span");
+            date.className = "history-date";
+            date.textContent = formatDate(chat.updated_at || chat.created_at);
+
+            item.appendChild(title);
+            item.appendChild(date);
 
             item.addEventListener("click", () => {
                 loadChat(chat.id);
@@ -544,366 +555,348 @@ async function loadChatHistory() {
 
             chatHistory.appendChild(item);
         }
-    } catch {
-        chatHistory.innerHTML = `<div class="history-empty">Could not load chat history.</div>`;
+    } catch (error) {
+        chatHistory.innerHTML = `<div class="history-empty">Could not load chats.</div>`;
     }
 }
 
 async function loadChat(chatId) {
-    if (isBusy || !apiConfigured() || !isLoggedIn()) return;
+    if (isBusy || !chatId) {
+        return;
+    }
 
     try {
-        setSaveStatus("Loading chat...");
+        setSaveStatus("Loading...");
 
-        const response = await apiFetch(`/api/chats/${chatId}`, {}, 10000);
+        const response = await apiFetch(`/api/chats/${encodeURIComponent(chatId)}`, {}, 10000);
+        const data = await readJsonResponse(response);
 
-        if (!response.ok) {
-            throw new Error(`Failed to load chat. HTTP ${response.status}`);
+        if (!response.ok || !data.ok) {
+            throw new Error(getErrorMessage(data, `HTTP ${response.status}`));
         }
 
-        const data = await response.json();
+        const chat = data.chat || data;
 
-        currentChatId = data.id;
-        currentGroupId = null;
         setMode("chat");
-        setActiveChatTitle(data.title || "Untitled chat");
+        setCurrentChatId(chat.id);
+        setActiveChatTitle(chat.title || "Untitled chat");
 
         clearMessages();
 
-        const chatMessages = data.messages || [];
+        const loadedMessages = chat.messages || [];
 
-        if (chatMessages.length === 0) {
-            addMessage("Jolli", "This chat is empty.", "assistant");
+        if (loadedMessages.length === 0) {
+            addMessage("Jolli AI", "This chat is empty.", "assistant", {
+                skipHistory: true,
+            });
         } else {
-            for (const msg of chatMessages) {
-                addMessage(msg.role === "user" ? "You" : "Jolli", msg.content, msg.role === "user" ? "user" : "assistant");
+            for (const msg of loadedMessages) {
+                const role = msg.role === "user" ? "user" : "assistant";
+                const name = role === "user" ? "You" : "Jolli AI";
+
+                addMessage(name, msg.content, role);
             }
         }
 
         setSaveStatus("Loaded");
         await loadChatHistory();
-        await loadGroups();
         markActiveSidebarItems();
     } catch (error) {
         setSaveStatus("Load failed");
-        addMessage("Jolli", "Could not load that chat: " + error.message, "assistant");
+        addMessage("Jolli AI", `Could not load chat: ${error.message}`, "assistant", {
+            error: true,
+            skipHistory: true,
+        });
     }
 }
 
 function startNewChat() {
-    if (isBusy) return;
+    if (isBusy) {
+        return;
+    }
 
-    currentChatId = null;
-    currentGroupId = null;
     setMode("chat");
+    setCurrentChatId(null);
     setActiveChatTitle("New chat");
     setSaveStatus("Ready");
+
     renderWelcomeMessage();
-    loadChatHistory();
-    loadGroups();
+    markActiveSidebarItems();
+    closeSidebar();
+
+    if (input) {
+        input.focus();
+    }
+}
+
+/* ---------------------------------------------------------
+ * Group placeholder
+ * --------------------------------------------------------- */
+
+async function loadGroups() {
+    if (!groupHistory) {
+        return;
+    }
+
+    groupHistory.innerHTML = `
+        <div class="history-empty">
+            Groups are not enabled in this backend yet.
+        </div>
+    `;
+}
+
+function startNewGroup() {
+    addMessage(
+        "Jolli AI",
+        "Groups are not connected yet. We can add Flask group endpoints next.",
+        "assistant",
+        {
+            skipHistory: true,
+        }
+    );
+
+    setSaveStatus("Groups not enabled");
     closeSidebar();
 }
 
 /* ---------------------------------------------------------
- * Groups API
+ * Memory commands
  * --------------------------------------------------------- */
 
-async function createGroup(name) {
-    setSaveStatus("Creating group...");
+function parseCommand(text) {
+    const trimmed = String(text || "").trim();
 
-    const response = await apiFetch("/api/groups", {
+    if (/^remember\s+/i.test(trimmed)) {
+        return {
+            type: "remember",
+            value: trimmed.replace(/^remember\s+/i, "").trim(),
+        };
+    }
+
+    if (/^(notes|memories|memory)$/i.test(trimmed)) {
+        return {
+            type: "notes",
+            value: "",
+        };
+    }
+
+    if (/^(clear notes|clear memory|forget all)$/i.test(trimmed)) {
+        return {
+            type: "clear-memory",
+            value: "",
+        };
+    }
+
+    return {
+        type: "chat",
+        value: trimmed,
+    };
+}
+
+async function rememberText(content) {
+    if (!content) {
+        addMessage("Jolli AI", "Tell me what to remember after the word `remember`.", "assistant", {
+            skipHistory: true,
+        });
+        return;
+    }
+
+    const response = await apiFetch("/api/memory/add", {
         method: "POST",
-        body: JSON.stringify({ name: name || "New group" }),
+        body: JSON.stringify({
+            content,
+        }),
     });
 
-    const data = await response.json().catch(() => ({}));
+    const data = await readJsonResponse(response);
 
-    if (!response.ok) {
-        throw new Error(data.detail || `Failed to create group. HTTP ${response.status}`);
+    if (!response.ok || !data.ok) {
+        throw new Error(getErrorMessage(data, `HTTP ${response.status}`));
     }
 
-    const group = data.group || data;
+    addMessage("Jolli AI", `Remembered: ${content}`, "assistant", {
+        skipHistory: true,
+    });
 
-    currentGroupId = group.id;
-    currentChatId = null;
-    setMode("group");
-    setActiveChatTitle(group.name || name || "New group");
-    setSaveStatus("Group created");
-
-    await loadGroups();
-    await loadGroup(group.id);
-
-    return group;
+    setSaveStatus("Memory saved");
 }
 
-async function loadGroups() {
-    if (!groupHistory) return;
+async function showNotes() {
+    const response = await apiFetch("/api/memory/list", {}, 10000);
+    const data = await readJsonResponse(response);
 
-    if (!apiConfigured()) {
-        groupHistory.innerHTML = `<div class="history-empty">API config missing.</div>`;
-        return;
+    if (!response.ok || !data.ok) {
+        throw new Error(getErrorMessage(data, `HTTP ${response.status}`));
     }
 
-    if (!isLoggedIn()) {
-        groupHistory.innerHTML = `<div class="history-empty">Log in to see your groups.</div>`;
-        return;
-    }
+    const memories = data.memories || [];
 
-    try {
-        const response = await apiFetch("/api/groups", {}, 10000);
-
-        if (!response.ok) {
-            throw new Error(`Failed to load groups. HTTP ${response.status}`);
-        }
-
-        const data = await response.json();
-        const groups = data.groups || [];
-
-        groupHistory.innerHTML = "";
-
-        if (groups.length === 0) {
-            groupHistory.innerHTML = `<div class="history-empty">No groups yet.</div>`;
-            return;
-        }
-
-        for (const group of groups) {
-            const item = document.createElement("button");
-            item.type = "button";
-            item.className = "history-item";
-            item.dataset.groupId = group.id;
-
-            if (currentMode === "group" && group.id === currentGroupId) {
-                item.classList.add("active");
-            }
-
-            item.innerHTML = `
-                <span class="history-title"></span>
-                <span class="history-date"></span>
-            `;
-
-            item.querySelector(".history-title").textContent = group.name || "Untitled group";
-            item.querySelector(".history-date").textContent =
-                group.role ? `role: ${group.role}` : (group.updated_at || group.created_at || "");
-
-            item.addEventListener("click", () => {
-                loadGroup(group.id);
-                closeSidebar();
-            });
-
-            groupHistory.appendChild(item);
-        }
-    } catch {
-        groupHistory.innerHTML = `<div class="history-empty">Could not load groups.</div>`;
-    }
-}
-
-async function loadGroup(groupId) {
-    if (isBusy || !apiConfigured() || !isLoggedIn()) return;
-
-    try {
-        setSaveStatus("Loading group...");
-
-        const response = await apiFetch(`/api/groups/${groupId}`, {}, 10000);
-
-        if (!response.ok) {
-            throw new Error(`Failed to load group. HTTP ${response.status}`);
-        }
-
-        const data = await response.json();
-
-        currentGroupId = data.id;
-        currentChatId = null;
-        setMode("group");
-        setActiveChatTitle(data.name || "Untitled group");
-
-        clearMessages();
-
-        const groupMessages = data.messages || [];
-
-        if (groupMessages.length === 0) {
-            addMessage("Jolli", "This group is empty. Send a message to start.", "assistant");
-        } else {
-            for (const msg of groupMessages) {
-                if (msg.role === "user") {
-                    addMessage(msg.username || msg.email || "User", msg.content, "user");
-                } else {
-                    addMessage("Jolli", msg.content, "assistant");
-                }
-            }
-        }
-
-        setSaveStatus("Group loaded");
-        await loadChatHistory();
-        await loadGroups();
-        markActiveSidebarItems();
-    } catch (error) {
-        setSaveStatus("Group load failed");
-        addMessage("Jolli", "Could not load that group: " + error.message, "assistant");
-    }
-}
-
-async function startNewGroup() {
-    if (isBusy) return;
-
-    if (!isLoggedIn()) {
-        showAuthScreen("Please log in before creating a group.");
-        return;
-    }
-
-    const name = prompt("Group name:");
-    if (!name || !name.trim()) return;
-
-    try {
-        await createGroup(name.trim());
-        closeSidebar();
-    } catch (error) {
-        addMessage("Jolli", "Could not create group: " + error.message, "assistant");
-        setSaveStatus("Group error");
-    }
-}
-
-async function addMemberToCurrentGroup() {
-    if (!currentGroupId) {
-        addMessage("Jolli", "Open a group first before adding members.", "assistant");
-        return;
-    }
-
-    const identifier = prompt("Enter member email or username:");
-    if (!identifier || !identifier.trim()) return;
-
-    try {
-        const response = await apiFetch(`/api/groups/${currentGroupId}/members`, {
-            method: "POST",
-            body: JSON.stringify({ identifier: identifier.trim() }),
+    if (memories.length === 0) {
+        addMessage("Jolli AI", "No saved notes yet.", "assistant", {
+            skipHistory: true,
         });
-
-        const data = await response.json().catch(() => ({}));
-
-        if (!response.ok) {
-            throw new Error(data.detail || `Failed to add member. HTTP ${response.status}`);
-        }
-
-        addMessage("Jolli", `Member added: ${data.user?.username || data.user?.email || identifier}`, "assistant");
-        await loadGroup(currentGroupId);
-    } catch (error) {
-        addMessage("Jolli", "Could not add member: " + error.message, "assistant");
+        return;
     }
+
+    const text = memories
+        .slice()
+        .reverse()
+        .map((memory, index) => `${index + 1}. ${memory.content}`)
+        .join("\n");
+
+    addMessage("Jolli AI", `Saved notes:\n${text}`, "assistant", {
+        skipHistory: true,
+    });
+}
+
+async function clearMemory() {
+    const response = await apiFetch("/api/memory/clear", {
+        method: "POST",
+    });
+
+    const data = await readJsonResponse(response);
+
+    if (!response.ok || !data.ok) {
+        throw new Error(getErrorMessage(data, `HTTP ${response.status}`));
+    }
+
+    addMessage("Jolli AI", "All saved notes were cleared.", "assistant", {
+        skipHistory: true,
+    });
+
+    setSaveStatus("Memory cleared");
 }
 
 /* ---------------------------------------------------------
- * Send message
+ * Sending chat messages
  * --------------------------------------------------------- */
 
 async function sendMessage(text) {
-    if (isBusy) return;
+    const cleanText = String(text || "").trim();
 
-    if (!apiConfigured()) {
-        addMessage("Jolli", "API config missing. Set window.JOLLI_API_BASE in config.js.", "assistant");
+    if (!cleanText || isBusy) {
         return;
     }
 
-    if (!isLoggedIn()) {
-        showAuthScreen("Please log in before chatting.");
-        return;
-    }
+    setBusy(true);
 
-    isBusy = true;
-    input.value = "";
-    input.disabled = true;
-    voiceBtn.disabled = true;
+    if (input) {
+        input.value = "";
+    }
 
     try {
-        if (currentMode === "group") {
-            await sendGroupMessage(text);
-        } else {
-            await sendPrivateMessage(text);
+        const command = parseCommand(cleanText);
+
+        if (command.type === "remember") {
+            addMessage("You", cleanText, "user", {
+                skipHistory: true,
+            });
+
+            await rememberText(command.value);
+            return;
         }
+
+        if (command.type === "notes") {
+            addMessage("You", cleanText, "user", {
+                skipHistory: true,
+            });
+
+            await showNotes();
+            return;
+        }
+
+        if (command.type === "clear-memory") {
+            addMessage("You", cleanText, "user", {
+                skipHistory: true,
+            });
+
+            await clearMemory();
+            return;
+        }
+
+        await sendChatMessage(cleanText);
     } catch (error) {
-        addMessage("Jolli", "Jolli backend error: " + error.message, "assistant");
+        addMessage("Jolli AI", `Jolli backend error: ${error.message}`, "assistant", {
+            error: true,
+            skipHistory: true,
+        });
+
         setSaveStatus("Error");
     } finally {
-        input.disabled = false;
-        voiceBtn.disabled = false;
-        input.focus();
-        isBusy = false;
+        setBusy(false);
+
+        if (input) {
+            input.focus();
+        }
     }
 }
 
-async function sendPrivateMessage(text) {
-    const firstMessageInChat = currentChatId === null;
-    const title = firstMessageInChat ? makeChatTitle(text) : currentChatTitle;
+async function sendChatMessage(text) {
+    const firstMessage = !currentChatId && localHistory.length <= 1;
 
-    if (!currentChatId) {
-        await createChat(title);
+    if (firstMessage) {
+        setActiveChatTitle(makeChatTitle(text));
     }
 
     addMessage("You", text, "user");
 
-    const jolliBubble = addTypingMessage();
+    const typingBubble = addTypingMessage();
+
+    setSaveStatus("Thinking...");
 
     const response = await apiFetch("/api/chat", {
         method: "POST",
         body: JSON.stringify({
             message: text,
             chat_id: currentChatId,
+            history: localHistory.slice(-30),
         }),
     }, 120000);
 
-    const data = await response.json().catch(() => ({}));
+    const data = await readJsonResponse(response);
 
-    if (!response.ok) {
-        throw new Error(data.detail || `Failed to talk to Jolli backend. HTTP ${response.status}`);
+    if (!response.ok || !data.ok) {
+        throw new Error(getErrorMessage(data, `HTTP ${response.status}`));
     }
 
-    if (data.chat_id) currentChatId = data.chat_id;
+    if (data.chat_id) {
+        setCurrentChatId(data.chat_id);
+    }
+
+    if (data.model) {
+        setModelName(data.model);
+    }
 
     const reply = data.reply || "I did not get a response.";
 
-    await typeIntoBubble(jolliBubble, reply);
-    speakText(reply);
+    await typeIntoBubble(typingBubble, reply);
+
+    localHistory.push({
+        role: "assistant",
+        content: reply,
+    });
+
+    if (localHistory.length > 40) {
+        localHistory = localHistory.slice(-40);
+    }
 
     setSaveStatus("Saved");
-    await loadChatHistory();
-}
 
-async function sendGroupMessage(text) {
-    if (!currentGroupId) {
-        throw new Error("Open or create a group first.");
-    }
-
-    addMessage(getDisplayName(currentUser), text, "user");
-
-    const jolliBubble = addTypingMessage();
-
-    const response = await apiFetch(`/api/groups/${currentGroupId}/chat`, {
-        method: "POST",
-        body: JSON.stringify({ message: text }),
-    }, 120000);
-
-    const data = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-        throw new Error(data.detail || `Failed to talk in group. HTTP ${response.status}`);
-    }
-
-    const reply = data.reply || "I did not get a response.";
-
-    await typeIntoBubble(jolliBubble, reply);
     speakText(reply);
-
-    setSaveStatus("Group saved");
-    await loadGroups();
+    await loadChatHistory();
+    markActiveSidebarItems();
 }
 
 /* ---------------------------------------------------------
- * Voice: browser fallback + Expo/Vosk bridge
+ * Voice
  * --------------------------------------------------------- */
 
 const JolliVoice = {
-    rate: Number(localStorage.getItem("jolli_voice_rate") || "0.95"),
-    pitch: Number(localStorage.getItem("jolli_voice_pitch") || "0.9"),
+    rate: Number(localStorage.getItem("jolli_voice_rate") || "0.96"),
+    pitch: Number(localStorage.getItem("jolli_voice_pitch") || "1"),
     volume: Number(localStorage.getItem("jolli_voice_volume") || "1"),
     voiceName: localStorage.getItem("jolli_voice_name") || "",
+    autoSpeak: localStorage.getItem("jolli_auto_speak") === "true",
 
     supported() {
         return "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
@@ -924,6 +917,7 @@ const JolliVoice = {
 
         if (this.voiceName) {
             const selected = voices.find(voice => voice.name === this.voiceName);
+
             if (selected) {
                 return selected;
             }
@@ -940,13 +934,14 @@ const JolliVoice = {
         return String(text || "")
             .replace(/```[\s\S]*?```/g, "code block omitted")
             .replace(/https?:\/\/\S+/g, "link omitted")
+            .replace(/[#*_>`~]/g, "")
             .replace(/\s+/g, " ")
             .trim()
             .slice(0, 3000);
     },
 
     speak(text) {
-        if (!this.supported()) {
+        if (!this.autoSpeak || !this.supported()) {
             return;
         }
 
@@ -973,7 +968,13 @@ const JolliVoice = {
         utterance.volume = Math.max(0, Math.min(1, this.volume));
 
         window.speechSynthesis.speak(utterance);
-    }
+    },
+
+    toggleAutoSpeak() {
+        this.autoSpeak = !this.autoSpeak;
+        localStorage.setItem("jolli_auto_speak", this.autoSpeak ? "true" : "false");
+        return this.autoSpeak;
+    },
 };
 
 window.JolliVoice = JolliVoice;
@@ -981,6 +982,75 @@ window.JolliVoice = JolliVoice;
 function speakText(text) {
     JolliVoice.speak(text);
 }
+
+function startVoiceInput() {
+    if (isBusy) {
+        return;
+    }
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+        const enabled = JolliVoice.toggleAutoSpeak();
+
+        addMessage(
+            "Jolli AI",
+            enabled
+                ? "Auto-speak is now on. Browser speech input is not available here."
+                : "Auto-speak is now off. Browser speech input is not available here.",
+            "assistant",
+            {
+                skipHistory: true,
+            }
+        );
+
+        return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = "en-US";
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    setSaveStatus("Listening...");
+
+    recognition.start();
+
+    recognition.onresult = event => {
+        const text = event.results?.[0]?.[0]?.transcript || "";
+
+        if (text.trim()) {
+            sendMessage(text.trim());
+        }
+    };
+
+    recognition.onerror = event => {
+        addMessage("Jolli AI", `Speech recognition error: ${event.error}`, "assistant", {
+            error: true,
+            skipHistory: true,
+        });
+
+        setSaveStatus("Voice error");
+    };
+
+    recognition.onend = () => {
+        if (!isBusy) {
+            setSaveStatus("Ready");
+        }
+    };
+}
+
+window.jolliReceiveVoiceText = function(text) {
+    if (!text || !text.trim()) {
+        return;
+    }
+
+    if (input) {
+        input.value = text.trim();
+    }
+
+    sendMessage(text.trim());
+};
 
 window.addEventListener("beforeunload", () => {
     JolliVoice.stop();
@@ -998,69 +1068,39 @@ if ("speechSynthesis" in window) {
     };
 }
 
-
-function startVoiceInput() {
-    if (isBusy) return;
-
-    if (window.ReactNativeWebView) {
-        window.ReactNativeWebView.postMessage(JSON.stringify({
-            type: "JOLLI_START_VOSK",
-        }));
-
-        addMessage("Jolli", "Listening with Jolli iOS voice...", "assistant");
-        return;
-    }
-
-    startBrowserSpeechRecognition();
-}
-
-function startBrowserSpeechRecognition() {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-
-    if (!SpeechRecognition) {
-        addMessage("Jolli", "Voice is not available here. In the iOS app, connect this button to the Vosk bridge.", "assistant");
-        return;
-    }
-
-    const recognition = new SpeechRecognition();
-    recognition.lang = "en-US";
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
-
-    addMessage("Jolli", "Listening from browser microphone...", "assistant");
-
-    recognition.start();
-
-    recognition.onresult = event => {
-        const text = event.results[0][0].transcript;
-        sendMessage(text);
-    };
-
-    recognition.onerror = event => {
-        addMessage("Jolli", "Speech recognition error: " + event.error, "assistant");
-    };
-}
-
-window.jolliReceiveVoiceText = function(text) {
-    if (!text || !text.trim()) return;
-    input.value = text.trim();
-    sendMessage(text.trim());
-};
-
 /* ---------------------------------------------------------
  * Events
  * --------------------------------------------------------- */
 
-form.addEventListener("submit", event => {
-    event.preventDefault();
+if (form) {
+    form.addEventListener("submit", event => {
+        event.preventDefault();
 
-    const text = input.value.trim();
-    if (!text) return;
+        if (!input) {
+            return;
+        }
 
-    sendMessage(text);
-});
+        const text = input.value.trim();
 
-voiceBtn.addEventListener("click", startVoiceInput);
+        if (!text) {
+            return;
+        }
+
+        sendMessage(text);
+    });
+}
+
+if (input) {
+    input.addEventListener("keydown", event => {
+        if (event.key === "Enter" && !event.shiftKey) {
+            return;
+        }
+    });
+}
+
+if (voiceBtn) {
+    voiceBtn.addEventListener("click", startVoiceInput);
+}
 
 if (newChatBtn) {
     newChatBtn.addEventListener("click", startNewChat);
@@ -1068,11 +1108,6 @@ if (newChatBtn) {
 
 if (newGroupBtn) {
     newGroupBtn.addEventListener("click", startNewGroup);
-
-    newGroupBtn.addEventListener("contextmenu", event => {
-        event.preventDefault();
-        addMemberToCurrentGroup();
-    });
 }
 
 if (refreshHistoryBtn) {
@@ -1095,25 +1130,36 @@ if (sidebarOverlay) {
     sidebarOverlay.addEventListener("click", closeSidebar);
 }
 
-const loginBtn = document.getElementById("login-btn");
-const createAccountBtn = document.getElementById("create-account-btn");
+suggestionButtons.forEach(button => {
+    button.addEventListener("click", () => {
+        const prompt = button.getAttribute("data-prompt") || button.textContent.trim();
 
-if (loginBtn) {
-    loginBtn.addEventListener("click", loginFromAuthScreen);
-}
+        if (!input || !prompt) {
+            return;
+        }
 
-if (createAccountBtn) {
-    createAccountBtn.addEventListener("click", registerFromAuthScreen);
-}
+        input.value = prompt;
+        input.focus();
+    });
+});
 
-["login-username", "login-password"].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) {
-        el.addEventListener("keydown", event => {
-            if (event.key === "Enter") {
-                loginFromAuthScreen();
-            }
-        });
+document.addEventListener("keydown", event => {
+    if (event.key === "Escape") {
+        closeSidebar();
+    }
+
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+
+        if (input) {
+            input.focus();
+            input.select();
+        }
+    }
+
+    if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "o") {
+        event.preventDefault();
+        startNewChat();
     }
 });
 
@@ -1121,45 +1167,33 @@ if (createAccountBtn) {
  * Boot
  * --------------------------------------------------------- */
 
-async function bootLoggedIn() {
-    showAppShell();
-    addLogoutButton();
+async function boot() {
+    setMode("chat");
+    setActiveChatTitle(currentChatTitle || "New chat");
+    setSaveStatus("Starting...");
+
     renderWelcomeMessage();
-    await checkStatus();
+
+    const online = await checkStatus();
+
+    if (!online) {
+        setSaveStatus("Offline");
+    } else {
+        setSaveStatus("Ready");
+    }
+
     await loadChatHistory();
     await loadGroups();
-}
 
-async function boot() {
-    hideAppShell();
-
-    if (!apiConfigured()) {
-        renderWelcomeMessage();
-        await checkStatus();
-        showAuthScreen("API config missing. Set window.JOLLI_API_BASE in config.js.");
-        return;
+    if (currentChatId) {
+        await loadChat(currentChatId);
     }
 
-    await checkStatus();
-
-    if (!isLoggedIn()) {
-        renderWelcomeMessage();
-        showAuthScreen();
-        await loadChatHistory();
-        await loadGroups();
-        return;
-    }
-
-    try {
-        await loadMe();
-        await bootLoggedIn();
-    } catch {
-        clearToken();
-        currentUser = null;
-        renderWelcomeMessage();
-        showAuthScreen("Please log in again.");
+    if (input) {
+        input.focus();
     }
 }
 
 boot();
-setInterval(checkStatus, 10000);
+
+setInterval(checkStatus, 15000);

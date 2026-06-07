@@ -3,193 +3,214 @@
 <head>
     <meta charset="UTF-8">
 
-    <title>Jolli iOS</title>
+    <title>Jolli AI</title>
 
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="theme-color" content="#08080c">
-    <meta name="description" content="Jolli, your personal AI assistant.">
+    <meta name="description" content="Jolli AI, a helpful general-purpose AI assistant powered by OpenAI.">
+
+    <link rel="manifest" href="/static/manifest.json">
 
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-title" content="Jolli">
+    <meta name="apple-mobile-web-app-title" content="Jolli AI">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 
-    <link rel="stylesheet" href="./style.css">
+    <link rel="apple-touch-icon" href="/static/icons/jolli-192.png">
+    <link rel="apple-touch-icon" sizes="192x192" href="/static/icons/jolli-192.png">
+    <link rel="apple-touch-icon" sizes="512x512" href="/static/icons/jolli-512.png">
 
-    <script src="./config.js" defer></script>
-    <script src="./app.js" defer></script>
+    <link rel="stylesheet" href="/static/style.css?v=openai-ui-1">
+
+    <script src="/static/config.js?v=openai-ui-1" defer></script>
+    <script src="/static/app.js?v=openai-ui-1" defer></script>
 </head>
 
 <body>
-    <section id="auth-screen" class="auth-screen">
-        <div class="auth-card">
-            <div class="jolli-orb"></div>
-
-            <h1>Jolli</h1>
-            <p>Your private AI assistant.</p>
-
-            <input id="login-username" type="text" placeholder="Username">
-            <input id="login-password" type="password" placeholder="Password">
-
-            <button id="login-btn" type="button">Login</button>
-            <button id="create-account-btn" class="ghost-btn" type="button">Create Account</button>
-
-            <p class="auth-note">Development build account screen</p>
-        </div>
-    </section>
-
-    <main id="app" class="app hidden">
-        <div id="sidebar-overlay" class="sidebar-overlay"></div>
-
-        <section id="mobile-sidebar" class="sidebar" aria-label="Jolli sidebar">
-            <div class="sidebar-top">
-                <div class="brand">
-                    <h1>Jolli</h1>
-                    <p class="subtitle">Your local AI assistant</p>
+    <main class="app shell">
+        <aside class="sidebar" aria-label="Jolli navigation">
+            <section class="brand-card">
+                <div class="brand-mark" aria-hidden="true">
+                    J
                 </div>
 
-                <button id="close-sidebar-btn" class="small-btn" type="button">
-                    ×
+                <div class="brand-text">
+                    <h1>Jolli AI</h1>
+                    <p class="subtitle">General-purpose AI assistant</p>
+                </div>
+            </section>
+
+            <section class="status-card" aria-label="Service status">
+                <div class="status-box" aria-live="polite">
+                    <div id="status-dot" class="dot"></div>
+
+                    <div class="status-copy">
+                        <span id="status-text">Checking Jolli service...</span>
+                        <small id="model-name">OpenAI API</small>
+                    </div>
+                </div>
+            </section>
+
+            <section class="sidebar-actions" aria-label="Chat actions">
+                <button id="new-chat-btn" class="new-chat-btn primary-action" type="button">
+                    + New chat
                 </button>
-            </div>
 
-            <div class="status-box" aria-live="polite">
-                <div id="status-dot" class="dot"></div>
-                <span id="status-text">Checking Jolli API...</span>
-            </div>
+                <button id="new-group-btn" class="new-chat-btn secondary-action" type="button">
+                    + New group
+                </button>
+            </section>
 
-            <button id="new-chat-btn" class="new-chat-btn" type="button">
-                + New Chat
-            </button>
-
-            <button id="new-group-btn" class="new-chat-btn" type="button">
-                + New Group
-            </button>
-
-            <div class="history-panel">
+            <section class="history-panel recent-panel" aria-label="Recent conversations">
                 <div class="history-header">
-                    <h2>Chat History</h2>
-                    <button id="refresh-history-btn" class="small-btn" type="button" title="Refresh chat history">
-                        ↻
-                    </button>
+                    <div>
+                        <h2>Recent</h2>
+                        <p>Saved Jolli conversations</p>
+                    </div>
+
+                    <div class="history-actions">
+                        <button id="refresh-history-btn" class="small-btn" type="button" title="Refresh recent chats" aria-label="Refresh recent chats">
+                            ↻
+                        </button>
+
+                        <button id="refresh-groups-btn" class="small-btn" type="button" title="Refresh groups" aria-label="Refresh groups">
+                            ⟳
+                        </button>
+                    </div>
                 </div>
 
                 <div id="chat-history" class="chat-history">
-                    <div class="history-empty">No saved chats yet.</div>
-                </div>
-            </div>
-
-            <div class="history-panel groups-panel">
-                <div class="history-header">
-                    <h2>Groups</h2>
-                    <button id="refresh-groups-btn" class="small-btn" type="button" title="Refresh groups">
-                        ↻
-                    </button>
+                    <div class="history-empty">No recent chats yet.</div>
                 </div>
 
-                <div id="group-history" class="chat-history group-history">
+                <div class="group-title-row">
+                    <h3>Groups</h3>
+                </div>
+
+                <div id="group-history" class="chat-history group-history merged-groups">
                     <div class="history-empty">No groups yet.</div>
                 </div>
-            </div>
+            </section>
 
-            <div class="commands">
+            <section class="commands compact-help" aria-label="Jolli commands">
                 <h2>Commands</h2>
-                <p><code>remember text</code></p>
-                <p><code>notes</code></p>
-                <p><code>call me message</code></p>
-                <p><code>groups use shared Jolli chats</code></p>
-            </div>
-        </section>
 
-        <section class="chat" aria-label="Jolli chat">
-            <header class="chat-header">
-                <button id="open-sidebar-btn" class="small-btn menu-btn" type="button">
-                    ☰
-                </button>
-
-                <div class="chat-title-wrap">
-                    <div class="chat-label" id="chat-mode-label">Current chat</div>
-                    <h2 id="active-chat-title">New chat</h2>
+                <div class="command-list">
+                    <p><code>remember text</code></p>
+                    <p><code>notes</code></p>
+                    <p><code>call me message</code></p>
                 </div>
 
-                <div id="save-status" class="save-status" aria-live="polite">
-                    Ready
+                <p class="hint">
+                    Jolli now uses the OpenAI API for normal ChatGPT-style replies.
+                </p>
+            </section>
+        </aside>
+
+        <section class="chat workspace" aria-label="Jolli chat">
+            <header class="chat-header">
+                <div class="chat-title-block">
+                    <div class="chat-label" id="chat-mode-label">
+                        Current chat
+                    </div>
+
+                    <h2 id="active-chat-title">New chat</h2>
+
+                    <p class="chat-subtitle">
+                        Ask questions, write code, learn things, plan projects, or just talk normally.
+                    </p>
+                </div>
+
+                <div class="chat-header-actions">
+                    <div id="save-status" class="save-status" aria-live="polite">
+                        Ready
+                    </div>
                 </div>
             </header>
 
             <div id="messages" class="messages" aria-live="polite">
-                <div class="message assistant">
-                    <div class="name">Jolli</div>
-                    <div class="bubble">Jolli iOS online. Ask me something.</div>
-                </div>
+                <article class="message assistant">
+                    <div class="avatar" aria-hidden="true">J</div>
+
+                    <div class="message-body">
+                        <div class="name">Jolli AI</div>
+
+                        <div class="bubble">
+                            Jolli AI is online. Ask me anything.
+                        </div>
+                    </div>
+                </article>
             </div>
 
+            <section class="suggestions" aria-label="Suggested prompts">
+                <button class="suggestion-chip" type="button" data-prompt="Help me write Python code">
+                    Help me write Python code
+                </button>
+
+                <button class="suggestion-chip" type="button" data-prompt="Explain this like I am new to it">
+                    Explain something simply
+                </button>
+
+                <button class="suggestion-chip" type="button" data-prompt="Help me plan a project">
+                    Plan a project
+                </button>
+
+                <button class="suggestion-chip" type="button" data-prompt="Help me rewrite this text">
+                    Rewrite text
+                </button>
+            </section>
+
             <form id="chat-form" class="input-bar">
-                <button type="button" id="voice-btn">
-                    🎙
-                </button>
+                <div class="input-shell">
+                    <input
+                        id="message-input"
+                        type="text"
+                        autocomplete="off"
+                        autocapitalize="sentences"
+                        spellcheck="true"
+                        inputmode="text"
+                        placeholder="Message Jolli AI..."
+                        required
+                    >
 
-                <input
-                    id="message-input"
-                    type="text"
-                    autocomplete="off"
-                    autocapitalize="sentences"
-                    spellcheck="true"
-                    inputmode="text"
-                    placeholder="Talk to Jolli..."
-                    required
-                >
+                    <div class="input-actions">
+                        <button type="button" id="voice-btn" class="voice-btn" title="Speak to Jolli" aria-label="Speak to Jolli">
+                            Speak
+                        </button>
 
-                <button type="submit" id="send-btn">
-                    Send
-                </button>
+                        <button type="submit" id="send-btn" class="send-btn">
+                            Send
+                        </button>
+                    </div>
+                </div>
             </form>
         </section>
     </main>
 
     <script>
         window.addEventListener("DOMContentLoaded", () => {
-            const app = document.getElementById("app");
-            const auth = document.getElementById("auth-screen");
+            console.log("Jolli AI OpenAI index.html loaded");
 
-            const loginBtn = document.getElementById("login-btn");
-            const createBtn = document.getElementById("create-account-btn");
+            const promptButtons = document.querySelectorAll(".suggestion-chip");
+            const input = document.getElementById("message-input");
 
-            const sidebar = document.getElementById("mobile-sidebar");
-            const overlay = document.getElementById("sidebar-overlay");
-            const openSidebar = document.getElementById("open-sidebar-btn");
-            const closeSidebar = document.getElementById("close-sidebar-btn");
+            promptButtons.forEach((button) => {
+                button.addEventListener("click", () => {
+                    const prompt = button.getAttribute("data-prompt");
 
-            function enterApp() {
-                localStorage.setItem("jolli_ios_logged_in", "yes");
-                auth.classList.add("hidden");
-                app.classList.remove("hidden");
-            }
+                    if (!input || !prompt) {
+                        return;
+                    }
 
-            function showSidebar() {
-                sidebar.classList.add("open");
-                overlay.classList.add("show");
-            }
+                    input.value = prompt;
+                    input.focus();
+                });
+            });
 
-            function hideSidebar() {
-                sidebar.classList.remove("open");
-                overlay.classList.remove("show");
-            }
-
-            loginBtn.addEventListener("click", enterApp);
-            createBtn.addEventListener("click", enterApp);
-
-            openSidebar.addEventListener("click", showSidebar);
-            closeSidebar.addEventListener("click", hideSidebar);
-            overlay.addEventListener("click", hideSidebar);
-
-            if (localStorage.getItem("jolli_ios_logged_in") === "yes") {
-                enterApp();
-            }
-
-            console.log("Jolli iOS index.html loaded");
-            console.log("new-group-btn exists:", !!document.getElementById("new-group-btn"));
+            console.log("message-input exists:", !!document.getElementById("message-input"));
+            console.log("chat-history exists:", !!document.getElementById("chat-history"));
             console.log("group-history exists:", !!document.getElementById("group-history"));
+            console.log("refresh-history-btn exists:", !!document.getElementById("refresh-history-btn"));
             console.log("refresh-groups-btn exists:", !!document.getElementById("refresh-groups-btn"));
         });
     </script>
