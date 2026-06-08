@@ -7,7 +7,7 @@
 
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="theme-color" content="#08080c">
-    <meta name="description" content="Jolli AI, a helpful general-purpose AI assistant powered by OpenAI.">
+    <meta name="description" content="Jolli AI, a private AI workspace for chats, groups, memory, and projects.">
 
     <link rel="manifest" href="/static/manifest.json">
 
@@ -20,25 +20,129 @@
     <link rel="apple-touch-icon" sizes="192x192" href="/static/icons/jolli-192.png">
     <link rel="apple-touch-icon" sizes="512x512" href="/static/icons/jolli-512.png">
 
-    <link rel="stylesheet" href="/static/style.css?v=openai-ui-1">
+    <link rel="stylesheet" href="/static/style.css?v=auth-fullscreen-1">
 
-    <script src="/static/config.js?v=openai-ui-1" defer></script>
-    <script src="/static/app.js?v=openai-ui-1" defer></script>
+    <script src="/static/config.js?v=auth-fullscreen-1" defer></script>
+    <script src="/static/firebase-config.js?v=auth-fullscreen-1" defer></script>
+
+    <script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-app-compat.js" defer></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-auth-compat.js" defer></script>
+
+    <script src="/static/app.js?v=auth-fullscreen-1" defer></script>
 </head>
 
 <body>
-    <main class="app shell">
-        <aside class="sidebar" aria-label="Jolli navigation">
-            <section class="brand-card">
-                <div class="brand-mark" aria-hidden="true">
-                    J
+    <section id="auth-screen" class="auth-screen">
+        <div class="auth-bg-glow auth-bg-glow-one"></div>
+        <div class="auth-bg-glow auth-bg-glow-two"></div>
+
+        <div class="auth-layout">
+            <section class="auth-hero" aria-label="Jolli account introduction">
+                <div class="jolli-orb" aria-hidden="true"></div>
+
+                <div>
+                    <p class="auth-kicker">Jolli AI</p>
+
+                    <h1>Your private AI workspace.</h1>
+
+                    <p class="auth-hero-text">
+                        Sign in to keep your chats, groups, memories, and school or work projects private to your account.
+                    </p>
                 </div>
 
-                <div class="brand-text">
-                    <h1>Jolli AI</h1>
-                    <p class="subtitle">General-purpose AI assistant</p>
+                <div class="auth-feature-grid">
+                    <div class="auth-feature-card">
+                        <strong>Private chats</strong>
+                        <span>Only you can see your conversations.</span>
+                    </div>
+
+                    <div class="auth-feature-card">
+                        <strong>Groups</strong>
+                        <span>Create shared Jolli spaces for people and teams.</span>
+                    </div>
+
+                    <div class="auth-feature-card">
+                        <strong>Projects</strong>
+                        <span>Organize homework, work, study plans, and research.</span>
+                    </div>
                 </div>
             </section>
+
+            <section class="auth-card" aria-label="Jolli account login">
+                <div class="auth-card-header">
+                    <h2>Welcome to Jolli</h2>
+                    <p>Log in or create a new account.</p>
+                </div>
+
+                <div id="auth-message" class="auth-message" style="display: none;"></div>
+
+                <div class="auth-field">
+                    <label for="auth-username">Username or email</label>
+                    <input
+                        id="auth-username"
+                        type="text"
+                        autocomplete="username"
+                        placeholder="jolliuser or email@example.com"
+                    >
+                </div>
+
+                <div class="auth-field">
+                    <label for="auth-email">Email for signup</label>
+                    <input
+                        id="auth-email"
+                        type="email"
+                        autocomplete="email"
+                        placeholder="email@example.com"
+                    >
+                </div>
+
+                <div class="auth-field">
+                    <label for="auth-password">Password</label>
+                    <input
+                        id="auth-password"
+                        type="password"
+                        autocomplete="current-password"
+                        placeholder="At least 8 characters"
+                    >
+                </div>
+
+                <div class="auth-actions">
+                    <button id="login-btn" type="button" class="auth-primary-btn">
+                        Log in
+                    </button>
+
+                    <button id="create-account-btn" type="button" class="auth-secondary-btn">
+                        Create account
+                    </button>
+                </div>
+
+                <p class="auth-note">
+                    Jolli uses Firebase Authentication. Your password is handled by Firebase, not stored directly by Jolli.
+                </p>
+            </section>
+        </div>
+    </section>
+
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+    <main id="app" class="app shell hidden">
+        <aside class="sidebar" aria-label="Jolli navigation">
+            <div class="sidebar-top">
+                <section class="brand-card">
+                    <div class="brand-mark" aria-hidden="true">
+                        J
+                    </div>
+
+                    <div class="brand-text">
+                        <h1>Jolli AI</h1>
+                        <p class="subtitle">Private AI workspace</p>
+                    </div>
+                </section>
+
+                <button id="close-sidebar-btn" class="small-btn" type="button" aria-label="Close sidebar">
+                    ×
+                </button>
+            </div>
 
             <section class="status-card" aria-label="Service status">
                 <div class="status-box" aria-live="polite">
@@ -46,7 +150,7 @@
 
                     <div class="status-copy">
                         <span id="status-text">Checking Jolli service...</span>
-                        <small id="model-name">OpenAI API</small>
+                        <small id="model-name">Jolli backend</small>
                     </div>
                 </div>
             </section>
@@ -65,15 +169,27 @@
                 <div class="history-header">
                     <div>
                         <h2>Recent</h2>
-                        <p>Saved Jolli conversations</p>
+                        <p>Your saved Jolli conversations</p>
                     </div>
 
                     <div class="history-actions">
-                        <button id="refresh-history-btn" class="small-btn" type="button" title="Refresh recent chats" aria-label="Refresh recent chats">
+                        <button
+                            id="refresh-history-btn"
+                            class="small-btn"
+                            type="button"
+                            title="Refresh recent chats"
+                            aria-label="Refresh recent chats"
+                        >
                             ↻
                         </button>
 
-                        <button id="refresh-groups-btn" class="small-btn" type="button" title="Refresh groups" aria-label="Refresh groups">
+                        <button
+                            id="refresh-groups-btn"
+                            class="small-btn"
+                            type="button"
+                            title="Refresh groups"
+                            aria-label="Refresh groups"
+                        >
                             ⟳
                         </button>
                     </div>
@@ -98,17 +214,22 @@
                 <div class="command-list">
                     <p><code>remember text</code></p>
                     <p><code>notes</code></p>
-                    <p><code>call me message</code></p>
+                    <p><code>clear memory</code></p>
+                    <p><code>right-click + New group to add member</code></p>
                 </div>
 
                 <p class="hint">
-                    Jolli now uses the OpenAI API for normal ChatGPT-style replies.
+                    Jolli uses your private account so other users cannot see your chats.
                 </p>
             </section>
         </aside>
 
         <section class="chat workspace" aria-label="Jolli chat">
             <header class="chat-header">
+                <button id="open-sidebar-btn" class="menu-btn" type="button" aria-label="Open sidebar">
+                    ☰
+                </button>
+
                 <div class="chat-title-block">
                     <div class="chat-label" id="chat-mode-label">
                         Current chat
@@ -117,7 +238,7 @@
                     <h2 id="active-chat-title">New chat</h2>
 
                     <p class="chat-subtitle">
-                        Ask questions, write code, learn things, plan projects, or just talk normally.
+                        Ask questions, write code, learn things, plan projects, or talk normally.
                     </p>
                 </div>
 
@@ -151,8 +272,8 @@
                     Explain something simply
                 </button>
 
-                <button class="suggestion-chip" type="button" data-prompt="Help me plan a project">
-                    Plan a project
+                <button class="suggestion-chip" type="button" data-prompt="Help me plan a school project">
+                    Plan a school project
                 </button>
 
                 <button class="suggestion-chip" type="button" data-prompt="Help me rewrite this text">
@@ -174,7 +295,13 @@
                     >
 
                     <div class="input-actions">
-                        <button type="button" id="voice-btn" class="voice-btn" title="Speak to Jolli" aria-label="Speak to Jolli">
+                        <button
+                            type="button"
+                            id="voice-btn"
+                            class="voice-btn"
+                            title="Speak to Jolli"
+                            aria-label="Speak to Jolli"
+                        >
                             Speak
                         </button>
 
@@ -186,33 +313,5 @@
             </form>
         </section>
     </main>
-
-    <script>
-        window.addEventListener("DOMContentLoaded", () => {
-            console.log("Jolli AI OpenAI index.html loaded");
-
-            const promptButtons = document.querySelectorAll(".suggestion-chip");
-            const input = document.getElementById("message-input");
-
-            promptButtons.forEach((button) => {
-                button.addEventListener("click", () => {
-                    const prompt = button.getAttribute("data-prompt");
-
-                    if (!input || !prompt) {
-                        return;
-                    }
-
-                    input.value = prompt;
-                    input.focus();
-                });
-            });
-
-            console.log("message-input exists:", !!document.getElementById("message-input"));
-            console.log("chat-history exists:", !!document.getElementById("chat-history"));
-            console.log("group-history exists:", !!document.getElementById("group-history"));
-            console.log("refresh-history-btn exists:", !!document.getElementById("refresh-history-btn"));
-            console.log("refresh-groups-btn exists:", !!document.getElementById("refresh-groups-btn"));
-        });
-    </script>
 </body>
 </html>
