@@ -2,7 +2,7 @@
 
 /* ---------------------------------------------------------
  * Jolli AI Web Client
- * OpenAI API backend edition
+ * Ollama / Firebase / Groups edition
  * --------------------------------------------------------- */
 
 const API_BASE = (window.JOLLI_API_BASE || "").replace(/\/$/, "") || window.location.origin;
@@ -33,6 +33,15 @@ const activeChatTitle = document.getElementById("active-chat-title");
 const chatModeLabel = document.getElementById("chat-mode-label");
 const saveStatus = document.getElementById("save-status");
 
+const appShell = document.getElementById("app");
+const authScreen = document.getElementById("auth-screen");
+const authMessage = document.getElementById("auth-message");
+const loginBtn = document.getElementById("login-btn");
+const createAccountBtn = document.getElementById("create-account-btn");
+const authUsername = document.getElementById("auth-username");
+const authEmail = document.getElementById("auth-email");
+const authPassword = document.getElementById("auth-password");
+
 const sidebar =
     document.getElementById("mobile-sidebar") ||
     document.querySelector(".sidebar");
@@ -58,11 +67,19 @@ let isBusy = false;
 let backendOnline = false;
 
 let currentMode = "chat";
+
 let currentChatId = localStorage.getItem("jolli_current_chat_id") || null;
 let currentChatTitle = localStorage.getItem("jolli_current_chat_title") || "New chat";
 
+let currentGroupId = localStorage.getItem("jolli_current_group_id") || null;
+let currentGroupTitle = localStorage.getItem("jolli_current_group_title") || "New group";
+
 let localHistory = [];
-let currentModel = "OpenAI";
+let currentModel = "Jolli";
+
+let firebaseApp = null;
+let firebaseAuth = null;
+let currentUser = null;
 
 /* ---------------------------------------------------------
  * API helpers
@@ -86,6 +103,14 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 30000) {
     }
 }
 
+async function getFirebaseToken() {
+    if (!firebaseAuth || !firebaseAuth.currentUser) {
+        return null;
+    }
+
+    return await firebaseAuth.currentUser.getIdToken();
+}
+
 async function apiFetch(path, options = {}, timeoutMs = 30000) {
     const headers = {
         ...(options.headers || {}),
@@ -93,6 +118,12 @@ async function apiFetch(path, options = {}, timeoutMs = 30000) {
 
     if (!(options.body instanceof FormData)) {
         headers["Content-Type"] = headers["Content-Type"] || "application/json";
+    }
+
+    const token = await getFirebaseToken();
+
+    if (token) {
+        headers.Authorization = `Bearer ${token}`;
     }
 
     const response = await fetchWithTimeout(
@@ -103,6 +134,11 @@ async function apiFetch(path, options = {}, timeoutMs = 30000) {
         },
         timeoutMs
     );
+
+    if (response.status === 401) {
+        showAuthScreen("Please log in again.");
+        throw new Error("Authentication required.");
+    }
 
     return response;
 }
@@ -117,6 +153,157 @@ async function readJsonResponse(response) {
 
 function getErrorMessage(data, fallback) {
     return data?.error || data?.detail || data?.message || fallback;
+}
+
+/* ---------------------------------------------------------
+ * Auth helpers
+ * --------------------------------------------------------- */
+
+function initFirebase() {
+    if (!window.firebase || !window.JOLLI_FIREBASE_CONFIG) {
+        return false;
+    }
+
+    if (!firebaseApp) {
+        firebaseApp = firebase.initializeApp(window.JOLLI_FIREBASE_CONFIG);
+        firebaseAuth = firebase.auth();
+    }
+
+    return true;
+}
+
+function showAppShell() {
+    if (authScreen) {
+        authScreen.classList.add("hidden");
+    }
+
+    if (appShell) {
+        appShell.classList.remove("hidden");
+    }
+}
+
+function showAuthScreen(message = "") {
+    if (appShell) {
+        appShell.classList.add("hidden");
+    }
+
+    if (authScreen) {
+        authScreen.classList.remove("hidden");
+    }
+
+    if (authMessage) {
+        authMessage.textContent = message;
+        authMessage.style.display = message ? "block" : "none";
+        authMessage.classList.remove("ok");
+    }
+}
+
+function setAuthMessage(message, ok = false) {
+    if (!authMessage) {
+        return;
+    }
+
+    authMessage.textContent = message;
+    authMessage.style.display = message ? "block" : "none";
+    authMessage.classList.toggle("ok", !!ok);
+}
+
+async function loginFromAuthScreen() {
+    if (!firebaseAuth) {
+        setAuthMessage("Firebase Auth is not loaded.");
+        return;
+    }
+
+    const email = authEmail?.value.trim() || authUsername?.value.trim() || "";
+    const password = authPassword?.value || "";
+
+    if (!email || !password) {
+        setAuthMessage("Enter email and password.");
+        return;
+    }
+
+    try {
+        const result = await firebaseAuth.signInWithEmailAndPassword(email, password);
+        currentUser = result.user;
+
+        showAppShell();
+        await bootLoggedIn();
+    } catch (error) {
+        setAuthMessage(error.message || "Login failed.");
+    }
+}
+
+async function registerFromAuthScreen() {
+    if (!firebaseAuth) {
+        setAuthMessage("Firebase Auth is not loaded.");
+        return;
+    }
+
+    const email = authEmail?.value.trim() || "";
+    const password = authPassword?.value || "";
+
+    if (!email || !password) {
+        setAuthMessage("Enter email and password.");
+        return;
+    }
+
+    if (password.length < 8) {
+        setAuthMessage("Password must be at least 8 characters.");
+        return;
+    }
+
+    try {
+        const result = await firebaseAuth.createUserWithEmailAndPassword(email, password);
+        currentUser = result.user;
+
+        showAppShell();
+        await bootLoggedIn();
+    } catch (error) {
+        setAuthMessage(error.message || "Account creation failed.");
+    }
+}
+
+async function logout() {
+    if (firebaseAuth) {
+        await firebaseAuth.signOut();
+    }
+
+    currentUser = null;
+    setCurrentChatId(null);
+    setCurrentGroupId(null);
+    setMode("chat");
+    setActiveChatTitle("New chat");
+    clearMessages();
+    showAuthScreen("Logged out.");
+}
+
+async function loadMe() {
+    const response = await apiFetch("/api/me", {}, 10000);
+    const data = await readJsonResponse(response);
+
+    if (!response.ok || !data.ok) {
+        throw new Error(getErrorMessage(data, "Could not load account."));
+    }
+
+    return data.user;
+}
+
+function addLogoutButton() {
+    if (!newChatBtn || document.getElementById("logout-btn")) {
+        return;
+    }
+
+    const logoutBtn = document.createElement("button");
+    logoutBtn.id = "logout-btn";
+    logoutBtn.className = "new-chat-btn secondary-action";
+    logoutBtn.type = "button";
+    logoutBtn.textContent = "Logout";
+
+    logoutBtn.addEventListener("click", async () => {
+        await logout();
+    });
+
+    newChatBtn.insertAdjacentElement("afterend", logoutBtn);
 }
 
 /* ---------------------------------------------------------
@@ -146,7 +333,7 @@ function setBackendStatus(text, ok, warn = false) {
 }
 
 function setModelName(text) {
-    currentModel = text || "OpenAI";
+    currentModel = text || "Jolli";
 
     if (modelName) {
         modelName.textContent = currentModel;
@@ -157,17 +344,28 @@ function setMode(mode) {
     currentMode = mode;
 
     if (chatModeLabel) {
-        chatModeLabel.textContent = mode === "group" ? "Current group" : "Current chat";
+        if (mode === "group") {
+            chatModeLabel.textContent = "Current group";
+        } else {
+            chatModeLabel.textContent = "Current chat";
+        }
     }
 }
 
 function setActiveChatTitle(title) {
-    currentChatTitle = title || "New chat";
+    const fallback = currentMode === "group" ? "New group" : "New chat";
+    const finalTitle = title || fallback;
 
-    localStorage.setItem("jolli_current_chat_title", currentChatTitle);
+    if (currentMode === "group") {
+        currentGroupTitle = finalTitle;
+        localStorage.setItem("jolli_current_group_title", currentGroupTitle);
+    } else {
+        currentChatTitle = finalTitle;
+        localStorage.setItem("jolli_current_chat_title", currentChatTitle);
+    }
 
     if (activeChatTitle) {
-        activeChatTitle.textContent = currentChatTitle;
+        activeChatTitle.textContent = finalTitle;
     }
 }
 
@@ -178,6 +376,16 @@ function setCurrentChatId(chatId) {
         localStorage.setItem("jolli_current_chat_id", currentChatId);
     } else {
         localStorage.removeItem("jolli_current_chat_id");
+    }
+}
+
+function setCurrentGroupId(groupId) {
+    currentGroupId = groupId || null;
+
+    if (currentGroupId) {
+        localStorage.setItem("jolli_current_group_id", currentGroupId);
+    } else {
+        localStorage.removeItem("jolli_current_group_id");
     }
 }
 
@@ -414,7 +622,9 @@ async function typeIntoBubble(bubble, text) {
     bubble.classList.remove("typing-bubble");
     bubble.textContent = "";
 
-    const shouldAnimate = content.length <= 2400 && !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const shouldAnimate =
+        content.length <= 2400 &&
+        !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
     if (!shouldAnimate) {
         appendTextWithCodeBlocks(bubble, content);
@@ -463,8 +673,16 @@ function markActiveSidebarItems() {
         item.classList.remove("active");
     });
 
-    if (currentChatId) {
+    if (currentMode === "chat" && currentChatId) {
         const active = document.querySelector(`[data-chat-id="${currentChatId}"]`);
+
+        if (active) {
+            active.classList.add("active");
+        }
+    }
+
+    if (currentMode === "group" && currentGroupId) {
+        const active = document.querySelector(`[data-group-id="${currentGroupId}"]`);
 
         if (active) {
             active.classList.add("active");
@@ -486,9 +704,15 @@ async function checkStatus() {
             return false;
         }
 
-        const model = data.model || "OpenAI";
+        const model = data.model || "Jolli";
         setModelName(model);
-        setBackendStatus("Jolli service online", true);
+
+        if (data.ollama_online === false) {
+            setBackendStatus("Jolli backend online, Ollama offline", false, true);
+        } else {
+            setBackendStatus("Jolli service online", true);
+        }
+
         return true;
     } catch (error) {
         if (error.name === "AbortError") {
@@ -533,7 +757,7 @@ async function loadChatHistory() {
             item.className = "history-item";
             item.dataset.chatId = chat.id;
 
-            if (chat.id === currentChatId) {
+            if (currentMode === "chat" && chat.id === currentChatId) {
                 item.classList.add("active");
             }
 
@@ -579,6 +803,7 @@ async function loadChat(chatId) {
 
         setMode("chat");
         setCurrentChatId(chat.id);
+        setCurrentGroupId(null);
         setActiveChatTitle(chat.title || "Untitled chat");
 
         clearMessages();
@@ -600,6 +825,7 @@ async function loadChat(chatId) {
 
         setSaveStatus("Loaded");
         await loadChatHistory();
+        await loadGroups();
         markActiveSidebarItems();
     } catch (error) {
         setSaveStatus("Load failed");
@@ -617,6 +843,7 @@ function startNewChat() {
 
     setMode("chat");
     setCurrentChatId(null);
+    setCurrentGroupId(null);
     setActiveChatTitle("New chat");
     setSaveStatus("Ready");
 
@@ -630,7 +857,7 @@ function startNewChat() {
 }
 
 /* ---------------------------------------------------------
- * Group placeholder
+ * Groups
  * --------------------------------------------------------- */
 
 async function loadGroups() {
@@ -638,25 +865,300 @@ async function loadGroups() {
         return;
     }
 
-    groupHistory.innerHTML = `
-        <div class="history-empty">
-            Groups are not enabled in this backend yet.
-        </div>
-    `;
+    try {
+        const response = await apiFetch("/api/groups", {}, 10000);
+        const data = await readJsonResponse(response);
+
+        if (!response.ok || !data.ok) {
+            throw new Error(getErrorMessage(data, `HTTP ${response.status}`));
+        }
+
+        const groups = data.groups || [];
+
+        groupHistory.innerHTML = "";
+
+        if (groups.length === 0) {
+            groupHistory.innerHTML = `<div class="history-empty">No groups yet.</div>`;
+            return;
+        }
+
+        for (const group of groups) {
+            const item = document.createElement("button");
+            item.type = "button";
+            item.className = "history-item";
+            item.dataset.groupId = group.id;
+
+            if (currentMode === "group" && group.id === currentGroupId) {
+                item.classList.add("active");
+            }
+
+            const title = document.createElement("span");
+            title.className = "history-title";
+            title.textContent = group.name || "Untitled group";
+
+            const date = document.createElement("span");
+            date.className = "history-date";
+            date.textContent = formatDate(group.updated_at || group.created_at);
+
+            item.appendChild(title);
+            item.appendChild(date);
+
+            item.addEventListener("click", () => {
+                loadGroup(group.id);
+                closeSidebar();
+            });
+
+            groupHistory.appendChild(item);
+        }
+    } catch (error) {
+        groupHistory.innerHTML = `<div class="history-empty">Could not load groups.</div>`;
+    }
 }
 
-function startNewGroup() {
-    addMessage(
-        "Jolli AI",
-        "Groups are not connected yet. We can add Flask group endpoints next.",
-        "assistant",
-        {
-            skipHistory: true,
-        }
-    );
+async function createGroup(name, description = "") {
+    const response = await apiFetch("/api/groups", {
+        method: "POST",
+        body: JSON.stringify({
+            name,
+            description,
+        }),
+    }, 15000);
 
-    setSaveStatus("Groups not enabled");
-    closeSidebar();
+    const data = await readJsonResponse(response);
+
+    if (!response.ok || !data.ok) {
+        throw new Error(getErrorMessage(data, `HTTP ${response.status}`));
+    }
+
+    return data.group;
+}
+
+async function startNewGroup() {
+    if (isBusy) {
+        return;
+    }
+
+    const name = prompt("Group name:");
+
+    if (!name || !name.trim()) {
+        return;
+    }
+
+    const description = prompt("Group description, optional:") || "";
+
+    try {
+        setSaveStatus("Creating group...");
+
+        const group = await createGroup(name.trim(), description.trim());
+
+        setMode("group");
+        setCurrentChatId(null);
+        setCurrentGroupId(group.id);
+        setActiveChatTitle(group.name || "New group");
+
+        clearMessages();
+
+        addMessage(
+            "Jolli AI",
+            `Group created: ${group.name || "New group"}. Send a message to start the group chat.`,
+            "assistant",
+            {
+                skipHistory: true,
+            }
+        );
+
+        setSaveStatus("Group created");
+
+        await loadChatHistory();
+        await loadGroups();
+        markActiveSidebarItems();
+        closeSidebar();
+
+        if (input) {
+            input.focus();
+        }
+    } catch (error) {
+        setSaveStatus("Group error");
+
+        addMessage(
+            "Jolli AI",
+            `Could not create group: ${error.message}`,
+            "assistant",
+            {
+                error: true,
+                skipHistory: true,
+            }
+        );
+    }
+}
+
+async function loadGroup(groupId) {
+    if (isBusy || !groupId) {
+        return;
+    }
+
+    try {
+        setSaveStatus("Loading group...");
+
+        const response = await apiFetch(`/api/groups/${encodeURIComponent(groupId)}`, {}, 10000);
+        const data = await readJsonResponse(response);
+
+        if (!response.ok || !data.ok) {
+            throw new Error(getErrorMessage(data, `HTTP ${response.status}`));
+        }
+
+        const group = data.group || data;
+
+        setMode("group");
+        setCurrentChatId(null);
+        setCurrentGroupId(group.id);
+        setActiveChatTitle(group.name || "Untitled group");
+
+        clearMessages();
+
+        const groupMessages = group.messages || [];
+
+        if (groupMessages.length === 0) {
+            addMessage(
+                "Jolli AI",
+                "This group is empty. Send a message to start.",
+                "assistant",
+                {
+                    skipHistory: true,
+                }
+            );
+        } else {
+            for (const msg of groupMessages) {
+                const role = msg.role === "user" ? "user" : "assistant";
+
+                const name =
+                    role === "user"
+                        ? (msg.display_name || "User")
+                        : "Jolli AI";
+
+                addMessage(name, msg.content, role);
+            }
+        }
+
+        setSaveStatus("Group loaded");
+
+        await loadChatHistory();
+        await loadGroups();
+        markActiveSidebarItems();
+    } catch (error) {
+        setSaveStatus("Group load failed");
+
+        addMessage(
+            "Jolli AI",
+            `Could not load group: ${error.message}`,
+            "assistant",
+            {
+                error: true,
+                skipHistory: true,
+            }
+        );
+    }
+}
+
+async function sendGroupMessage(text) {
+    if (!currentGroupId) {
+        throw new Error("Open or create a group first.");
+    }
+
+    const displayName =
+        currentUser?.displayName ||
+        currentUser?.email ||
+        currentUser?.username ||
+        "User";
+
+    addMessage(displayName, text, "user");
+
+    const typingBubble = addTypingMessage();
+
+    setSaveStatus("Thinking...");
+
+    const response = await apiFetch(`/api/groups/${encodeURIComponent(currentGroupId)}/chat`, {
+        method: "POST",
+        body: JSON.stringify({
+            message: text,
+            display_name: displayName,
+        }),
+    }, 120000);
+
+    const data = await readJsonResponse(response);
+
+    if (!response.ok || !data.ok) {
+        throw new Error(getErrorMessage(data, `HTTP ${response.status}`));
+    }
+
+    const reply = data.reply || "I did not get a response.";
+
+    await typeIntoBubble(typingBubble, reply);
+
+    setSaveStatus("Group saved");
+
+    speakText(reply);
+
+    await loadGroups();
+    markActiveSidebarItems();
+}
+
+async function addMemberToCurrentGroup() {
+    if (!currentGroupId) {
+        addMessage(
+            "Jolli AI",
+            "Open a group first before adding members.",
+            "assistant",
+            {
+                skipHistory: true,
+            }
+        );
+
+        return;
+    }
+
+    const displayName = prompt("Member display name:");
+
+    if (!displayName || !displayName.trim()) {
+        return;
+    }
+
+    try {
+        const response = await apiFetch(`/api/groups/${encodeURIComponent(currentGroupId)}/members`, {
+            method: "POST",
+            body: JSON.stringify({
+                display_name: displayName.trim(),
+                role: "member",
+            }),
+        }, 15000);
+
+        const data = await readJsonResponse(response);
+
+        if (!response.ok || !data.ok) {
+            throw new Error(getErrorMessage(data, `HTTP ${response.status}`));
+        }
+
+        addMessage(
+            "Jolli AI",
+            `Member added: ${data.member?.display_name || displayName}`,
+            "assistant",
+            {
+                skipHistory: true,
+            }
+        );
+
+        await loadGroup(currentGroupId);
+    } catch (error) {
+        addMessage(
+            "Jolli AI",
+            `Could not add member: ${error.message}`,
+            "assistant",
+            {
+                error: true,
+                skipHistory: true,
+            }
+        );
+    }
 }
 
 /* ---------------------------------------------------------
@@ -768,7 +1270,7 @@ async function clearMemory() {
 }
 
 /* ---------------------------------------------------------
- * Sending chat messages
+ * Sending messages
  * --------------------------------------------------------- */
 
 async function sendMessage(text) {
@@ -814,7 +1316,11 @@ async function sendMessage(text) {
             return;
         }
 
-        await sendChatMessage(cleanText);
+        if (currentMode === "group") {
+            await sendGroupMessage(cleanText);
+        } else {
+            await sendChatMessage(cleanText);
+        }
     } catch (error) {
         addMessage("Jolli AI", `Jolli backend error: ${error.message}`, "assistant", {
             error: true,
@@ -1090,14 +1596,6 @@ if (form) {
     });
 }
 
-if (input) {
-    input.addEventListener("keydown", event => {
-        if (event.key === "Enter" && !event.shiftKey) {
-            return;
-        }
-    });
-}
-
 if (voiceBtn) {
     voiceBtn.addEventListener("click", startVoiceInput);
 }
@@ -1108,6 +1606,11 @@ if (newChatBtn) {
 
 if (newGroupBtn) {
     newGroupBtn.addEventListener("click", startNewGroup);
+
+    newGroupBtn.addEventListener("contextmenu", event => {
+        event.preventDefault();
+        addMemberToCurrentGroup();
+    });
 }
 
 if (refreshHistoryBtn) {
@@ -1129,6 +1632,26 @@ if (closeSidebarBtn) {
 if (sidebarOverlay) {
     sidebarOverlay.addEventListener("click", closeSidebar);
 }
+
+if (loginBtn) {
+    loginBtn.addEventListener("click", loginFromAuthScreen);
+}
+
+if (createAccountBtn) {
+    createAccountBtn.addEventListener("click", registerFromAuthScreen);
+}
+
+[authUsername, authEmail, authPassword].forEach(element => {
+    if (!element) {
+        return;
+    }
+
+    element.addEventListener("keydown", event => {
+        if (event.key === "Enter") {
+            loginFromAuthScreen();
+        }
+    });
+});
 
 suggestionButtons.forEach(button => {
     button.addEventListener("click", () => {
@@ -1167,7 +1690,10 @@ document.addEventListener("keydown", event => {
  * Boot
  * --------------------------------------------------------- */
 
-async function boot() {
+async function bootLoggedIn() {
+    showAppShell();
+    addLogoutButton();
+
     setMode("chat");
     setActiveChatTitle(currentChatTitle || "New chat");
     setSaveStatus("Starting...");
@@ -1192,6 +1718,66 @@ async function boot() {
     if (input) {
         input.focus();
     }
+}
+
+async function bootWithoutAuth() {
+    setMode("chat");
+    setActiveChatTitle(currentChatTitle || "New chat");
+    setSaveStatus("Starting...");
+
+    renderWelcomeMessage();
+
+    const online = await checkStatus();
+
+    if (!online) {
+        setSaveStatus("Offline");
+    } else {
+        setSaveStatus("Ready");
+    }
+
+    await loadChatHistory();
+    await loadGroups();
+
+    if (currentChatId) {
+        await loadChat(currentChatId);
+    }
+
+    if (input) {
+        input.focus();
+    }
+}
+
+async function boot() {
+    const firebaseReady = initFirebase();
+
+    if (firebaseReady && authScreen && appShell) {
+        await checkStatus();
+
+        firebaseAuth.onAuthStateChanged(async user => {
+            currentUser = user;
+
+            if (!user) {
+                showAuthScreen();
+                return;
+            }
+
+            try {
+                await loadMe();
+                await bootLoggedIn();
+            } catch (error) {
+                showAuthScreen(error.message || "Please log in again.");
+            }
+        });
+
+        return;
+    }
+
+    if (authScreen && appShell && !firebaseReady) {
+        showAuthScreen("Firebase Auth is not loaded.");
+        return;
+    }
+
+    await bootWithoutAuth();
 }
 
 boot();
